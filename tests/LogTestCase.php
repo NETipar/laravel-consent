@@ -30,5 +30,8 @@ class LogTestCase extends TestCase
         $log = $defaults['log'];
 
         $app['config']->set('consent.log', array_replace_recursive($log, ['enabled' => true], $this->logOverrides()));
+
+        // The IP hasher (HMAC) and the encrypted XSRF-TOKEN need a key; CI has no testbench .env to supply one.
+        $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
     }
 }
