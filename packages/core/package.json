@@ -1,0 +1,53 @@
+{
+    "name": "@netipar/consent-core",
+    "version": "0.1.0",
+    "description": "Framework-agnostic cookie-consent core for Laravel Consent",
+    "type": "module",
+    "main": "dist/index.cjs",
+    "module": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc --noEmit -p tsconfig.json && tsup"
+    },
+    "keywords": [
+        "consent",
+        "cookie",
+        "gdpr",
+        "consent-mode",
+        "laravel"
+    ],
+    "author": {
+        "name": "NETipar",
+        "email": "dev@netipar.hu",
+        "url": "https://netipar.hu"
+    },
+    "license": "MIT",
+    "homepage": "https://github.com/NETipar/laravel-consent",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/NETipar/laravel-consent.git",
+        "directory": "packages/core"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "sideEffects": false
+}

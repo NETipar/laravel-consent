@@ -1,0 +1,24 @@
+# PHPStan configuration for the Windows CI lane.
+#
+# Larastan bootstraps a real Laravel application (via Testbench) inside *every*
+# PHPStan process, and each of those boots rewrites the Testbench skeleton's
+# vendor/orchestra/testbench-core/laravel/bootstrap/cache/services.php through
+# Illuminate\Filesystem\Filesystem::replace() — a write-to-temp-file followed by
+# rename() onto the shared path.
+#
+# With PHPStan's default parallelism the workers boot simultaneously, so several
+# processes rename() onto the same file at the same moment. POSIX rename()
+# tolerates that; Windows does not, and the losing process dies with:
+#
+#   rename(...\bootstrap\cache\ser####.tmp, ...\bootstrap\cache\services.php):
+#   Access is denied (code: 5)
+#
+# Analysing in a single process serialises those writes and removes the race.
+# Only the Windows lane pays the speed cost; Linux keeps full parallelism.
+
+includes:
+    - ../phpstan.neon.dist
+
+parameters:
+    parallel:
+        maximumNumberOfProcesses: 1

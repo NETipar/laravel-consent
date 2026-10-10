@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: |
+        Describe the use case. What are you doing now, and what makes it
+        painful? Help us understand the user need before the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        How would you like the package to behave? API sketches, code
+        snippets, links to similar features in other packages all welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        What workarounds or alternative approaches have you tried? This
+        helps us understand the design space.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which surface does this affect?
+      multiple: true
+      options:
+        - PHP backend (ConsentManager, cookie reader, Blade directives)
+        - HTTP API (consent log route)
+        - Consent log
+        - Frontend core (@netipar/consent-core)
+        - Vue 3 wrapper
+        - Alpine wrapper
+        - Livewire / Alpine integration
+        - Documentation
+        - CI / tooling

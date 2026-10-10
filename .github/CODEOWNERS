@@ -1,0 +1,6 @@
+# Default owner for everything
+*       @ufooo
+
+# Release engineering
+/.github/workflows/  @ufooo
+/CHANGELOG.md        @ufooo

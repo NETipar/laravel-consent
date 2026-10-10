@@ -1,0 +1,65 @@
+{
+    "name": "@netipar/consent-vue3",
+    "version": "0.1.0",
+    "description": "Unstyled Vue 3 composables and components for Laravel Consent",
+    "type": "module",
+    "main": "dist/index.cjs",
+    "module": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc --noEmit -p tsconfig.json && tsup"
+    },
+    "keywords": [
+        "consent",
+        "cookie",
+        "gdpr",
+        "consent-mode",
+        "laravel",
+        "vue",
+        "vue3",
+        "composable"
+    ],
+    "author": {
+        "name": "NETipar",
+        "email": "dev@netipar.hu",
+        "url": "https://netipar.hu"
+    },
+    "license": "MIT",
+    "homepage": "https://github.com/NETipar/laravel-consent",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/NETipar/laravel-consent.git",
+        "directory": "packages/vue3"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "dependencies": {
+        "@netipar/consent-core": "workspace:^"
+    },
+    "peerDependencies": {
+        "vue": "^3.5"
+    },
+    "devDependencies": {
+        "vue": "^3.5"
+    },
+    "sideEffects": false
+}

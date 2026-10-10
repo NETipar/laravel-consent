@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.22.0). Bumps the three npm package.json files, commits, tags, and creates a GitHub Release.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Tag + GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version format
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::'${{ inputs.version }}' is not a valid semver version."
+            exit 1
+          fi
+
+      - name: Verify CHANGELOG entry exists
+        run: |
+          if ! grep -q "^## v${{ inputs.version }} - " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no entry for v${{ inputs.version }}. Add a `## v${{ inputs.version }} - YYYY-MM-DD` section before triggering this workflow."
+            exit 1
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump npm package versions
+        run: scripts/bump-version.sh "${{ inputs.version }}"
+
+      - name: Commit version bump
+        run: |
+          if git diff --quiet --exit-code; then
+            echo "No version changes to commit (already at v${{ inputs.version }})."
+          else
+            git add packages/*/package.json
+            git commit -m "Release v${{ inputs.version }}"
+            git push origin HEAD
+          fi
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          awk -v ver="${{ inputs.version }}" '
+            $0 ~ "^## v" ver " -" { flag = 1; next }
+            flag && /^## v[0-9]+\.[0-9]+\.[0-9]+/ { flag = 0 }
+            flag
+          ' CHANGELOG.md > /tmp/release-notes.md
+          echo "Wrote $(wc -l < /tmp/release-notes.md) lines."
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --notes-file /tmp/release-notes.md \
+            --target main

@@ -1,0 +1,73 @@
+version: 2
+updates:
+  # Composer (PHP)
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Budapest"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "php"
+    commit-message:
+      prefix: "composer"
+    groups:
+      laravel:
+        patterns:
+          - "illuminate/*"
+          - "laravel/*"
+      dev-dependencies:
+        dependency-type: "development"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # pnpm workspace — single entry at the workspace root.
+  #
+  # The whole repo is one pnpm workspace (pnpm-workspace.yaml → packages/*)
+  # with a single shared pnpm-lock.yaml at the root; the workspace members
+  # have NO lockfile of their own. Dependabot's pnpm workspace support
+  # updates the root devDependencies AND every packages/* member's
+  # package.json from this one root entry. Per-package `directory:` entries
+  # (e.g. /packages/vue3) were removed: Dependabot errors out on a
+  # workspace subdirectory that has no lockfile, which is what broke the
+  # "Dependabot Updates" runs.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "npm"
+    groups:
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "happy-dom"
+      esbuild:
+        patterns:
+          - "esbuild"

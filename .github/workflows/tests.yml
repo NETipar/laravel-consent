@@ -1,0 +1,201 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      - '*.x'
+      - v1
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # A single lane failing says nothing about the other 23, and cancelling them
+      # hides whether a break is matrix-wide or specific to one PHP/Laravel/stability
+      # combination -- which is exactly what you need to know first. Let every lane
+      # report; the concurrency group above still cancels superseded runs.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        php: [8.3, 8.4, 8.5]
+        laravel: [12.*, 13.*]
+        stability: [prefer-lowest, prefer-stable]
+        include:
+          - laravel: 12.*
+            testbench: 10.*
+          - laravel: 13.*
+            testbench: 11.*
+
+    name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, curl, libxml, mbstring, zip, fileinfo, sqlite, pdo_sqlite, bcmath, intl
+          # setup-php seeds php.ini from php.ini-production, which ships
+          # variables_order="GPCS" — so $_ENV stays empty. The Type Coverage step
+          # below needs $_ENV populated; EGPCS is PHP's compiled-in default and
+          # matches a normal local install.
+          ini-values: error_reporting=E_ALL, variables_order=EGPCS
+          tools: composer:v2
+          coverage: none
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction --no-progress --no-scripts
+          composer run prepare
+
+      - name: PHPStan
+        if: runner.os != 'Windows'
+        run: composer analyse
+
+      # Larastan boots Laravel in every PHPStan process, and each boot rewrites the
+      # Testbench skeleton's bootstrap/cache/services.php. On Windows the concurrent
+      # rename() onto that file fails with "Access is denied (code: 5)", so this lane
+      # analyses single-process. See .github/phpstan-windows.neon.
+      - name: PHPStan (Windows)
+        if: runner.os == 'Windows'
+        run: vendor/bin/phpstan analyse --memory-limit=2G --configuration=.github/phpstan-windows.neon
+
+      - name: Linter
+        run: composer lint:check
+
+      # pest-plugin-type-coverage fans the analysis out over pokio-forked workers,
+      # and every worker read-modify-writes one shared var_export cache file
+      # (vendor/pestphp/pest-plugin-type-coverage/.temp/v3.php) with a plain
+      # file_put_contents. Its flock is best-effort: after 100ms of contention
+      # Cache::withinLock() gives up and writes *unlocked*, so two writers interleave
+      # and the next reader dies with `ParseError: syntax error, unexpected token "=>"`.
+      # __PEST_PLUGIN_ENV keeps pokio on the sync runtime, leaving a single writer.
+      # Same class of bug as the Windows PHPStan race fixed in a0f8f9b.
+      # Upstream fixed it in v5 (blocking flock), which needs Pest 5 + PHP >= 8.4;
+      # the 4.x fix (pestphp/pest-plugin-type-coverage#58) was closed unmerged.
+      # Serialising costs nothing here — measured 2.9s vs 3.1s on the full src tree.
+      - name: Type Coverage
+        if: runner.os != 'Windows'
+        env:
+          __PEST_PLUGIN_ENV: '1'
+        run: |
+          grep -q '__PEST_PLUGIN_ENV' vendor/pestphp/pest-plugin-type-coverage/src/Analyser.php \
+            || { echo "::error::__PEST_PLUGIN_ENV is gone from pest-plugin-type-coverage; the cache-race workaround is stale"; exit 1; }
+          composer test:types
+
+      - name: Test Suite
+        if: runner.os != 'Windows'
+        run: composer test:unit
+
+      - name: Test Suite (Windows)
+        if: runner.os == 'Windows'
+        run: vendor/bin/pest
+
+  coverage:
+    name: Coverage (P8.4 - L12)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, fileinfo, sqlite, pdo_sqlite, bcmath, intl
+          tools: composer:v2
+          coverage: pcov
+
+      - name: Install dependencies
+        run: |
+          composer update --prefer-dist --no-interaction --no-progress --no-scripts
+          composer run prepare
+
+      - name: Composer audit
+        run: composer audit --format=plain
+
+      - name: Run tests with coverage
+        run: vendor/bin/pest --coverage --coverage-clover=coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  js-quality:
+    name: Frontend (typecheck + tests + build + audit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm -r run build
+
+      - name: pnpm audit (production deps, high+)
+        run: pnpm audit --prod --audit-level=high
+
+  lint-yaml:
+    name: Lint YAML workflows (actionlint)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true
+
+  lint-md:
+    name: Lint Markdown
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          globs: |
+            README.md
+            CHANGELOG.md
+            UPGRADE.md
+            AGENTS.md
+            .github/SECURITY.md
+            .github/CONTRIBUTING.md
+            docs/**/*.md
+        continue-on-error: true

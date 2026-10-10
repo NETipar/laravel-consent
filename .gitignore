@@ -1,0 +1,43 @@
+# IDE / Editor
+/.idea
+/.vscode
+/.fleet
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP
+/vendor
+/build
+composer.lock
+.phpunit.result.cache
+.phpunit.cache
+.phpstan.cache
+/coverage
+*.cobertura.xml
+clover.xml
+coverage.xml
+
+# Node / pnpm
+node_modules
+.pnpm-store
+*.tsbuildinfo
+
+# Build output (published to npm, not committed)
+packages/*/dist
+packages/*/types
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env (defensive — should never be in a package repo)
+.env
+.env.local
+.env.*.local
+
+# Local packs
+/.packs
