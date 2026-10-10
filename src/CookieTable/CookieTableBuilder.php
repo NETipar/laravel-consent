@@ -77,7 +77,16 @@ final class CookieTableBuilder
 
         // Carbon folds days into weeks ("12 weeks 6 days" for P90D); skipping weeks keeps the units as written.
         // Only an ISO duration that itself uses weeks (P2W) renders them.
-        return CarbonInterval::make($lifetime)?->locale($locale)->forHumans([
+        $interval = CarbonInterval::make($lifetime);
+
+        // Older Carbon types locale() as `static|string` (getter/setter), so guard before formatting.
+        $localized = $interval?->locale($locale);
+
+        if (! $localized instanceof CarbonInterval) {
+            return null;
+        }
+
+        return $localized->forHumans([
             'parts' => 2,
             'short' => false,
             'skip' => str_contains($lifetime, 'W') ? [] : ['weeks'],
