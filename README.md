@@ -354,7 +354,7 @@ The default markup (Blade and Vue) follows one contract, and replacement markup 
 
 ## Interop with laravel-office-leads
 
-[`netipar/laravel-office-leads`](https://github.com/NETipar/laravel-office-leads) reads the same cookie by default (`__cookie_consent`, category `marketing`), so attribution tracking honours the banner with no configuration. To bind it explicitly:
+`netipar/laravel-office-leads` (a private NETipar package) reads the same cookie by default (`__cookie_consent`, category `marketing`), so attribution tracking honours the banner with no configuration. To bind it explicitly:
 
 ```php
 use NETipar\Consent\Facades\Consent;
