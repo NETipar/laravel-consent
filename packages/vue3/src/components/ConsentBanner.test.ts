@@ -180,6 +180,99 @@ describe('ConsentBanner fallback render', () => {
             expect(document.activeElement).toBe(footer);
         });
 
+        describe('decision made from the prompt (P2)', () => {
+            it.each([[0, 'accept all'], [1, 'reject all']])('moves focus from the prompt button %i (%s) to [data-consent-focus-return]', async (index) => {
+                const footer = hook();
+                const wrapper = mountBanner();
+                const button = wrapper.findAll('button')[index].element as HTMLButtonElement;
+                button.focus();
+                expect(document.activeElement).toBe(button);
+
+                await wrapper.findAll('button')[index].trigger('click');
+
+                expect(wrapper.get('section').attributes('hidden')).toBeDefined();
+                expect(document.activeElement).toBe(footer);
+            });
+
+            it('moves focus to the hook when the clicked button was never focused (Safari: body is active)', async () => {
+                const footer = hook();
+                const wrapper = mountBanner();
+                (document.activeElement as HTMLElement).blur();
+                expect(document.activeElement).toBe(document.body);
+
+                await wrapper.findAll('button')[0].trigger('click');
+
+                expect(document.activeElement).toBe(footer);
+            });
+
+            it.each([[0], [1]])('leaves focus alone when it sat outside the prompt (button %i)', async (index) => {
+                hook();
+                const wrapper = mountBanner();
+                const bystander = document.createElement('input');
+                document.body.appendChild(bystander);
+                bystander.focus();
+
+                await wrapper.findAll('button')[index].trigger('click');
+
+                expect(wrapper.get('section').attributes('hidden')).toBeDefined();
+                expect(document.activeElement).toBe(bystander);
+            });
+
+            it('leaves focus alone when there is no [data-consent-focus-return] element', async () => {
+                const wrapper = mountBanner();
+                const button = wrapper.findAll('button')[0].element as HTMLButtonElement;
+                button.focus();
+
+                await wrapper.findAll('button')[0].trigger('click');
+
+                expect(document.activeElement).toBe(button);
+            });
+
+            it('does not touch focus on mount for an already-decided visitor', () => {
+                const manager = createConsent(makeConfig(), quietOptions);
+                manager.save(['analytics']);
+                const footer = hook();
+                const bystander = document.createElement('input');
+                document.body.appendChild(bystander);
+                bystander.focus();
+
+                const wrapper = mount(ConsentBanner, {
+                    attachTo: document.body,
+                    global: { provide: { [ConsentKey as symbol]: manager } },
+                });
+                wrappers.push(wrapper as VueWrapper);
+
+                expect(document.activeElement).toBe(bystander);
+                expect(document.activeElement).not.toBe(footer);
+
+                manager.destroy();
+            });
+
+            it('scoped slot: acceptAll() with promptRef bound moves focus from the prompt to the hook', async () => {
+                const footer = hook();
+                let captured: Record<string, any> = {};
+                const Host = defineComponent({
+                    setup() {
+                        return () => h(ConsentBanner, null, {
+                            default: (props: Record<string, any>) => {
+                                captured = props;
+
+                                return h('section', { ref: props.promptRef, tabindex: '-1' }, [h('button', { id: 'custom-accept', onClick: props.acceptAll }, 'ok')]);
+                            },
+                        });
+                    },
+                });
+                const wrapper = mount(Host, { attachTo: document.body, global: { plugins: [plugin()] } });
+                wrappers.push(wrapper as VueWrapper);
+                (wrapper.get('#custom-accept').element as HTMLButtonElement).focus();
+
+                await wrapper.get('#custom-accept').trigger('click');
+
+                expect(captured.decided.value).toBe(true);
+                expect(document.activeElement).toBe(footer);
+            });
+        });
+
         it('returns focus to the hook when the opener was removed, and leaves focus alone without a hook', async () => {
             stubDialog();
             let captured: Record<string, any> = {};

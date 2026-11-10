@@ -4,6 +4,12 @@ All notable changes to `netipar/laravel-consent` will be documented in this file
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See [UPGRADE.md](UPGRADE.md) for migration notes.
 
+## Unreleased
+
+### Fixed
+
+- Deciding from the prompt ("Accept all", "Reject all", or `save()` from a prompt with its own save button) no longer drops focus to `<body>` (WCAG 2.4.3): in `@netipar/consent-alpine` and `@netipar/consent-vue3` focus moves to the `[data-consent-focus-return]` element before the prompt is hidden, only when focus was in the prompt or on `<body>` (Safari) — focus elsewhere on the page is left alone. Calling the store / `useConsent()` decision methods directly bypasses the component and is not covered.
+
 ## v0.1.0 - 2026-10-10
 
 ### Added

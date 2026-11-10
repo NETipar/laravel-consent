@@ -39,10 +39,6 @@ export const ConsentBanner = defineComponent({
             }
         };
 
-        const saveSelection = (): void => {
-            consent.save(Object.keys(selection).filter((key) => selection[key]));
-        };
-
         const activeElement = (): HTMLElement | null =>
             typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
 
@@ -67,6 +63,35 @@ export const ConsentBanner = defineComponent({
                 && !(prompt.value?.contains(opener) === true && !consent.promptOpen.value);
 
             return usable ? opener : document.querySelector<HTMLElement>('[data-consent-focus-return]');
+        };
+
+        /**
+         * Runs a decision made from the prompt (not from the settings dialog,
+         * whose close handler owns focus). Focus moves to `[data-consent-focus-return]`
+         * BEFORE the prompt is hidden, so the browser never drops it to `<body>`
+         * (WCAG 2.4.3). Only when focus sat in the prompt (`promptRef`) or on
+         * `<body>` (Safari does not focus clicked buttons); focus elsewhere is never touched.
+         */
+        const decideFromPrompt = (decide: () => void): void => {
+            const active = activeElement();
+            const fromPrompt = typeof document !== 'undefined'
+                && consent.promptOpen.value
+                && !consent.settingsOpen.value
+                && (active === document.body || active === null || prompt.value?.contains(active) === true);
+
+            decide();
+
+            if (fromPrompt) {
+                focusReturnTarget(active)?.focus?.({ preventScroll: true });
+            }
+        };
+
+        const acceptAll = (): void => decideFromPrompt(consent.acceptAll);
+
+        const rejectAll = (): void => decideFromPrompt(consent.rejectAll);
+
+        const saveSelection = (): void => {
+            decideFromPrompt(() => consent.save(Object.keys(selection).filter((key) => selection[key])));
         };
 
         const closeSettings = (): void => {
@@ -141,8 +166,8 @@ export const ConsentBanner = defineComponent({
                         manager.config.policyUrl ? h('a', { href: manager.config.policyUrl }, texts.policy) : null,
                     ]),
                     h('div', { 'data-consent-actions': '' }, [
-                        button(texts.acceptAll, consent.acceptAll),
-                        button(texts.rejectAll, consent.rejectAll),
+                        button(texts.acceptAll, acceptAll),
+                        button(texts.rejectAll, rejectAll),
                         button(texts.settings, openSettings),
                     ]),
                 ],
@@ -175,6 +200,8 @@ export const ConsentBanner = defineComponent({
         return () => slots.default
             ? slots.default({
                 ...consent,
+                acceptAll,
+                rejectAll,
                 selection,
                 toggle,
                 saveSelection,

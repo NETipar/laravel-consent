@@ -633,6 +633,14 @@ it. Two things matter:
   Settings button inside the prompt, which "Save" has just hidden — focus moves
   to the first element carrying this attribute, e.g. the footer's reopen
   button; without such an element focus is left alone.
+- **Decisions made in the prompt.** "Accept all" and "Reject all" (and a
+  `save()` from a prompt that has its own save button) hide the prompt the
+  visitor just clicked in. When focus sits in the prompt (or on `<body>`, as in
+  Safari), it moves to the `[data-consent-focus-return]` element before the
+  prompt is hidden; focus elsewhere on the page is never touched. This runs
+  through the component's `acceptAll()` / `rejectAll()` / `save()` (Alpine
+  `consentBanner`, Vue `ConsentBanner`; in a Vue slot bind `promptRef`) — calling
+  `$store.consent.acceptAll()` or `useConsent().acceptAll()` directly skips it.
 
 ```html
 <button type="button" data-consent-focus-return x-data x-on:click="$store.consent.openSettings($el)">Cookie settings</button>

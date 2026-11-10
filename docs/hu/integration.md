@@ -630,6 +630,15 @@ Két dolog számít:
   lévő Beállítások gomb, amelyet a „Mentés” épp elrejtett —, a fókusz az első
   ilyen attribútumú elemre kerül, például a lábléc újranyitó gombjára; ilyen
   elem nélkül a fókuszt békén hagyja.
+- **A promptban hozott döntés.** A „Mindet elfogadom” és a „Mindet elutasítom”
+  (valamint a saját mentés gombbal rendelkező promptban a `save()`) elrejti a
+  promptot, amelyben a látogató épp kattintott. Ha a fókusz a promptban van (vagy
+  a `<body>`-n, mint Safariban), a prompt elrejtése előtt a
+  `[data-consent-focus-return]` elemre kerül; az oldal más pontján lévő fókuszhoz
+  nem nyúl. Ez a komponens `acceptAll()` / `rejectAll()` / `save()` hívásán
+  keresztül működik (Alpine `consentBanner`, Vue `ConsentBanner`; Vue slotban
+  kösse be a `promptRef`-et) — a `$store.consent.acceptAll()` vagy a
+  `useConsent().acceptAll()` közvetlen hívása kihagyja.
 
 ```html
 <button type="button" data-consent-focus-return x-data x-on:click="$store.consent.openSettings($el)">Süti beállítások</button>
