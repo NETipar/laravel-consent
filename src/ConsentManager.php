@@ -231,11 +231,13 @@ class ConsentManager
                 'idCookieName' => $this->config->logIdCookieName,
             ] : null,
             'policyUrl' => $this->policyUrl(),
-            'google' => $this->config->googleTags === [] ? null : [
+            'google' => $this->config->googleTags === [] && $this->config->googleContainers === [] ? null : [
                 'tags' => $this->config->googleTags,
+                'containers' => $this->config->googleContainers,
                 'signals' => $this->config->googleSignals,
                 'adsDataRedaction' => $this->config->adsDataRedaction,
                 'urlPassthrough' => $this->config->urlPassthrough,
+                'updateEvent' => $this->config->googleUpdateEvent,
             ],
         ];
     }

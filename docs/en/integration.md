@@ -432,7 +432,8 @@ Besides `createConsent` and `readConsentConfig(doc?, id?)` the core exports
 `readState`, `ConsentError`, `CHANGE_EVENT`, `LOG_FAILED_EVENT` and the types
 `ConsentAction`, `ConsentCategory`, `ConsentConfig`, `ConsentManager`,
 `ConsentState`, `ConsentTexts`, `ConsentUi`, `CookieTableCategory`,
-`CookieTableEntry`, `CreateConsentOptions`, `GoogleSignal`, `GoogleTag`. The
+`CookieTableEntry`, `CreateConsentOptions`, `GoogleContainer`, `GoogleSignal`,
+`GoogleTag`. The
 adapters re-export `readConsentConfig` (Alpine) and the main types.
 
 ## Gated scripts
@@ -536,6 +537,68 @@ if (Alpine.store('consent').has('marketing') && typeof window.gtag === 'function
 }
 ```
 
+## Google Tag Manager
+
+Load a GTM container through the same Consent Mode pipeline instead of pasting
+the GTM snippet into the layout (the snippet would load before consent):
+
+```php
+'google' => [
+    'tags' => [],
+    // Local and CI environments without GTM_ID load nothing.
+    'containers' => env('GTM_ID') ? [['id' => env('GTM_ID')]] : [],
+    'signals' => [ /* … as above … */ ],
+    'ads_data_redaction' => false,
+    'url_passthrough' => false,
+    'update_event' => 'consent_update',
+],
+```
+
+Without `categories` the container is eligible for the optional categories the
+signals map to (here `analytics` and `marketing`); list them explicitly to
+narrow it: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
+
+1. Nothing loads before the decision, nor when only required categories are
+   granted.
+2. Once **any** of the container's categories is granted, the core sends
+   `consent default` (the four signals) and the `set` calls, then pushes
+   `{'gtm.start': Date.now(), event: 'gtm.js'}` and injects
+   `gtm.js?id=GTM-…` (async). There is no `gtag('js')` / `gtag('config')` for a
+   container. With `tags` configured too, both share the `dataLayer` and the
+   single `consent default`; the gtag.js loader comes first.
+3. Every later change sends `consent update`; once a container is on the page
+   it is followed by
+   `{event: 'consent_update', consent_granted: ['necessary', 'analytics']}`.
+   In GTM, a **Custom Event** trigger on `consent_update` (and a Data Layer
+   Variable for `consent_granted`) lets tags react without a reload. A
+   `{consent_granted: null}` push precedes each event: GTM merges arrays index
+   by index, and without the reset a narrowed list would still contain the
+   revoked categories — so the default (Version 2) variable is correct. A
+   container that becomes eligible only now loads now, once; if it is the
+   first container on the page it gets no event (it starts from the current
+   signals anyway), a further container replays the events already pushed.
+4. Revoking a category a loaded container covers sends `consent update` and the
+   event, purges the cookies and — with `reload_on_revoke` — reloads.
+
+Inside the container, rely on Consent Mode: Google tags honour the signals
+through their built-in consent checks; give non-Google tags
+**Require additional consent** in their Consent Settings.
+
+**Inertia (Vue 3).** Nothing extra beyond `createConsentPlugin()` and your
+`<ConsentBanner>`: the plugin's manager lives for the whole visit, so the
+container is injected once, even across Inertia visits; during SSR nothing
+runs. Inertia visits change the URL with `history.pushState`, which GTM does
+not count as a page view: add a **History Change** trigger and fire your
+page-view tag on it.
+
+**Livewire (Alpine).** `registerConsent()` attaches Google the same way;
+`livewire:navigated`, `visibilitychange` and bfcache restores re-sync the
+decision but never inject the container twice. With `wire:navigate` use the
+same **History Change** trigger for page views.
+
+Out of scope: the GTM `<noscript><iframe>` fallback cannot be gated by consent,
+so the package does not render it — leave it out of the layout.
+
 ## Cookie table
 
 Render the cookies you declared in config on the policy page, so the page
@@ -633,6 +696,14 @@ it. Two things matter:
   Settings button inside the prompt, which "Save" has just hidden — focus moves
   to the first element carrying this attribute, e.g. the footer's reopen
   button; without such an element focus is left alone.
+- **Decisions made in the prompt.** "Accept all" and "Reject all" (and a
+  `save()` from a prompt that has its own save button) hide the prompt the
+  visitor just clicked in. When focus sits in the prompt (or on `<body>`, as in
+  Safari), it moves to the `[data-consent-focus-return]` element before the
+  prompt is hidden; focus elsewhere on the page is never touched. This runs
+  through the component's `acceptAll()` / `rejectAll()` / `save()` (Alpine
+  `consentBanner`, Vue `ConsentBanner`; in a Vue slot bind `promptRef`) — calling
+  `$store.consent.acceptAll()` or `useConsent().acceptAll()` directly skips it.
 
 ```html
 <button type="button" data-consent-focus-return x-data x-on:click="$store.consent.openSettings($el)">Cookie settings</button>

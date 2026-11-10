@@ -397,6 +397,107 @@ describe('registerConsent', () => {
             expect(doc.activeElement).toBe(footer);
         });
 
+        describe('decision made from the prompt (P2)', () => {
+            const hook = () => {
+                const footer = doc.createElement('button');
+                footer.setAttribute('data-consent-focus-return', '');
+                doc.body.appendChild(footer);
+
+                return footer;
+            };
+
+            it.each([['acceptAll'], ['rejectAll']] as const)('%s() moves focus from the prompt button to [data-consent-focus-return]', async (decision) => {
+                const { component, store, prompt } = await prepare();
+                const button = prompt.appendChild(doc.createElement('button'));
+                const footer = hook();
+                button.focus();
+                expect(doc.activeElement).toBe(button);
+
+                component[decision]();
+
+                expect(store().promptOpen).toBe(false);
+                expect(doc.activeElement).toBe(footer);
+            });
+
+            it('save() from a prompt that has its own save button moves focus to the hook', async () => {
+                const { component, store, prompt } = await prepare();
+                const button = prompt.appendChild(doc.createElement('button'));
+                const footer = hook();
+                button.focus();
+
+                component.save();
+
+                expect(store().promptOpen).toBe(false);
+                expect(doc.activeElement).toBe(footer);
+            });
+
+            it('moves focus to the hook when the clicked button was never focused (Safari: body is active)', async () => {
+                const { component, prompt } = await prepare();
+                prompt.appendChild(doc.createElement('button'));
+                const footer = hook();
+                (doc.activeElement as HTMLElement).blur();
+                expect(doc.activeElement).toBe(doc.body);
+
+                component.acceptAll();
+
+                expect(doc.activeElement).toBe(footer);
+            });
+
+            it.each([['acceptAll'], ['rejectAll']] as const)('%s() leaves focus alone when it sat outside the prompt', async (decision) => {
+                const { component, store, prompt } = await prepare();
+                prompt.appendChild(doc.createElement('button'));
+                hook();
+                const bystander = doc.body.appendChild(doc.createElement('input'));
+                bystander.focus();
+
+                component[decision]();
+
+                expect(store().promptOpen).toBe(false);
+                expect(doc.activeElement).toBe(bystander);
+            });
+
+            it('leaves focus alone when there is no [data-consent-focus-return] element', async () => {
+                const { component, prompt } = await prepare();
+                const button = prompt.appendChild(doc.createElement('button'));
+                button.focus();
+
+                expect(() => component.acceptAll()).not.toThrow();
+                expect(doc.activeElement).toBe(button);
+            });
+
+            it('does not touch focus on initial render for an already-decided visitor', async () => {
+                const { manager, banner } = await setup();
+                manager.acceptAll();
+                const footer = hook();
+                const bystander = doc.body.appendChild(doc.createElement('input'));
+                bystander.focus();
+                const component = banner();
+                component.$refs.prompt = doc.body.appendChild(doc.createElement('section'));
+
+                component.init();
+
+                expect(doc.activeElement).toBe(bystander);
+                expect(doc.activeElement).not.toBe(footer);
+            });
+
+            it('save() from the settings dialog keeps focus handling in hideDialog (no double handling from the prompt)', async () => {
+                const { component, watcher, prompt, dialog } = await prepare();
+                const opener = prompt.appendChild(doc.createElement('button'));
+                const footer = hook();
+                component.openSettings(opener);
+                watcher(true);
+                const inDialog = doc.body.appendChild(doc.createElement('button'));
+                inDialog.focus();
+
+                component.save();
+
+                expect(doc.activeElement).toBe(inDialog);
+                watcher(false);
+                expect(dialog.open).toBe(false);
+                expect(doc.activeElement).toBe(footer);
+            });
+        });
+
         it('returns focus to the hook when the opener sits under a [hidden] ancestor', async () => {
             const { component, watcher, prompt } = await prepare();
             const opener = doc.createElement('button');

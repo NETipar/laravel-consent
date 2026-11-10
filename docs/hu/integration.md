@@ -433,7 +433,8 @@ az `activateGatedScripts`, `attachGoogle`, `attachLog`, `purgeCategoryCookies`,
 `readState`, `ConsentError`, `CHANGE_EVENT`, `LOG_FAILED_EVENT` értékeket és a
 `ConsentAction`, `ConsentCategory`, `ConsentConfig`, `ConsentManager`,
 `ConsentState`, `ConsentTexts`, `ConsentUi`, `CookieTableCategory`,
-`CookieTableEntry`, `CreateConsentOptions`, `GoogleSignal`, `GoogleTag`
+`CookieTableEntry`, `CreateConsentOptions`, `GoogleContainer`, `GoogleSignal`,
+`GoogleTag`
 típusokat. Az adapterek újraexportálják a `readConsentConfig`-ot (Alpine) és a
 fő típusokat.
 
@@ -530,6 +531,72 @@ if (Alpine.store('consent').has('marketing') && typeof window.gtag === 'function
     window.gtag('event', 'conversion', { send_to: 'AW-XXXXXXXXX/abc' });
 }
 ```
+
+## Google Tag Manager
+
+A GTM-konténert ugyanazon a Consent Mode-csővezetéken töltse be, ne a
+layoutba másolt GTM-snippettel (az a hozzájárulás előtt betöltődne):
+
+```php
+'google' => [
+    'tags' => [],
+    // GTM_ID nélküli helyi és CI-környezetben semmi nem töltődik be.
+    'containers' => env('GTM_ID') ? [['id' => env('GTM_ID')]] : [],
+    'signals' => [ /* … mint fent … */ ],
+    'ads_data_redaction' => false,
+    'url_passthrough' => false,
+    'update_event' => 'consent_update',
+],
+```
+
+`categories` nélkül a konténer azokra a nem kötelező kategóriákra jogosult,
+amelyekre a jelzések mutatnak (itt `analytics` és `marketing`); szűkítéshez
+sorolja fel őket: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
+
+1. Döntés előtt semmi nem töltődik be, és akkor sem, ha csak kötelező kategória
+   engedélyezett.
+2. Amint a konténer **bármelyik** kategóriája engedélyezett, a mag elküldi a
+   `consent default` hívást (a négy jelzéssel) és a `set` hívásokat, majd
+   `{'gtm.start': Date.now(), event: 'gtm.js'}` kerül a `dataLayer`-be, és
+   beszúrja a `gtm.js?id=GTM-…` scriptet (async). Konténerhez nincs
+   `gtag('js')` / `gtag('config')`. Ha `tags` is van, a kettő közös
+   `dataLayer`-t és egyetlen `consent default`-ot használ; a gtag.js-betöltő
+   jön először.
+3. Minden későbbi változás `consent update` hívást küld; ha már van betöltött
+   konténer, utána
+   `{event: 'consent_update', consent_granted: ['necessary', 'analytics']}`
+   eseményt is. A GTM-ben egy `consent_update` **Custom Event** trigger (és
+   egy Data Layer Variable a `consent_granted`-re) újratöltés nélkül is
+   reagálhat. Minden esemény előtt egy `{consent_granted: null}` push megy ki:
+   a GTM indexenként fésüli össze a tömböket, és e törlés nélkül a szűkített
+   lista még a visszavont kategóriákat is tartalmazná — így az alapértelmezett
+   (Version 2) változó is helyes értéket ad. Az épp most jogosulttá váló konténer most tölt be, egyszer; ha ez az
+   első konténer az oldalon, eseményt nem kap (úgyis az aktuális jelzésekkel
+   indul), egy további konténer viszont visszajátssza a már kiküldött
+   eseményeket.
+4. Ha egy betöltött konténer kategóriáját visszavonják, `consent update` és az
+   esemény megy ki, a sütik törlődnek, és — `reload_on_revoke` esetén — az
+   oldal újratölt.
+
+A konténeren belül a Consent Mode kapuz: a Google-címkék beépített
+hozzájárulás-ellenőrzéssel követik a jelzéseket; a nem Google-címkéknél a
+Consent Settingsben állítsa be a **Require additional consent** opciót.
+
+**Inertia (Vue 3).** A `createConsentPlugin()` és a `<ConsentBanner>` mellett
+nincs teendő: a plugin managere az egész látogatás alatt él, így a konténer
+Inertia-navigációk mellett is egyszer kerül be; SSR alatt semmi nem fut. Az
+Inertia-navigáció `history.pushState`-tel vált URL-t, amit a GTM nem számol
+oldalletöltésnek: vegyen fel egy **History Change** triggert, és arra
+süsse el az oldalmegtekintés-címkét.
+
+**Livewire (Alpine).** A `registerConsent()` ugyanígy köti be a Google-t; a
+`livewire:navigated`, a `visibilitychange` és a bfcache-visszaállítás
+újraszinkronizálja a döntést, de a konténert sosem szúrja be kétszer.
+`wire:navigate` mellett ugyanígy a **History Change** trigger méri az
+oldalletöltéseket.
+
+Hatókörön kívül: a GTM `<noscript><iframe>` tartalékát nem lehet a
+hozzájárulással kapuzni, ezért a csomag nem adja ki — a layoutba se tegye be.
 
 ## Süti-táblázat
 
@@ -630,6 +697,15 @@ Két dolog számít:
   lévő Beállítások gomb, amelyet a „Mentés” épp elrejtett —, a fókusz az első
   ilyen attribútumú elemre kerül, például a lábléc újranyitó gombjára; ilyen
   elem nélkül a fókuszt békén hagyja.
+- **A promptban hozott döntés.** A „Mindet elfogadom” és a „Mindet elutasítom”
+  (valamint a saját mentés gombbal rendelkező promptban a `save()`) elrejti a
+  promptot, amelyben a látogató épp kattintott. Ha a fókusz a promptban van (vagy
+  a `<body>`-n, mint Safariban), a prompt elrejtése előtt a
+  `[data-consent-focus-return]` elemre kerül; az oldal más pontján lévő fókuszhoz
+  nem nyúl. Ez a komponens `acceptAll()` / `rejectAll()` / `save()` hívásán
+  keresztül működik (Alpine `consentBanner`, Vue `ConsentBanner`; Vue slotban
+  kösse be a `promptRef`-et) — a `$store.consent.acceptAll()` vagy a
+  `useConsent().acceptAll()` közvetlen hívása kihagyja.
 
 ```html
 <button type="button" data-consent-focus-return x-data x-on:click="$store.consent.openSettings($el)">Süti beállítások</button>

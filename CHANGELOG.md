@@ -4,6 +4,23 @@ All notable changes to `netipar/laravel-consent` will be documented in this file
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See [UPGRADE.md](UPGRADE.md) for migration notes.
 
+## v0.2.0 - Unreleased
+
+### Added
+
+- Google Tag Manager containers in Consent Mode v2 Basic: `google.containers` (`['id' => 'GTM-XXXXXXX', 'categories' => [...]]`, categories defaulting to the optional ones in `google.signals`). A container loads only after one of its categories is granted, at most once, on the same `dataLayer` and after the same single `consent default` as the gtag.js tags; its granted categories take part in `reload_on_revoke`. `clientConfig()['google']` gains `containers` and `updateEvent`, and is no longer `null` when only containers are configured.
+- `google.update_event` (default `'consent_update'`, `null` = off): once a container is loaded, every consent change pushes `{consent_granted: null}` and `{event: …, consent_granted: [...]}` after `consent update`, so GTM triggers can react without a reload; the reset keeps GTM's array merge from reporting revoked categories. gtag-only setups get no new `dataLayer` entries.
+- `GoogleContainer` type exported from `@netipar/consent-core`; `attachGoogle()` is a no-op without a `window` (SSR).
+
+### Changed
+
+- The npm packages are built with tsup 9: the JavaScript output is unchanged, the declaration files list type exports as `export type { … }` instead of inline `type` modifiers.
+
+### Fixed
+
+- `google.tags[].id` no longer accepts an id with a trailing newline (`$` without the `D` modifier).
+- Deciding from the prompt ("Accept all", "Reject all", or `save()` from a prompt with its own save button) no longer drops focus to `<body>` (WCAG 2.4.3): in `@netipar/consent-alpine` and `@netipar/consent-vue3` focus moves to the `[data-consent-focus-return]` element before the prompt is hidden, only when focus was in the prompt or on `<body>` (Safari) — focus elsewhere on the page is left alone. Calling the store / `useConsent()` decision methods directly bypasses the component and is not covered.
+
 ## v0.1.0 - 2026-10-10
 
 ### Added

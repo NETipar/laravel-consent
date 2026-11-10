@@ -27,6 +27,8 @@ it('parses the package defaults', function (): void {
         ->and($config->googleSignals)->toHaveCount(4)
         ->and($config->adsDataRedaction)->toBeFalse()
         ->and($config->urlPassthrough)->toBeFalse()
+        ->and($config->googleContainers)->toBe([])
+        ->and($config->googleUpdateEvent)->toBe('consent_update')
         ->and($config->logEnabled)->toBeFalse()
         ->and($config->logRetentionDays)->toBe(365)
         ->and($config->logRouteMiddleware)->toBe(['web'])
@@ -153,6 +155,27 @@ it('rejects invalid configuration and names the offending key', function (string
     'signals extra key' => ['google.signals.extra', 'analytics', 'consent.google.signals'],
     'signals not an array' => ['google.signals', 'analytics', 'consent.google.signals'],
     'google section' => ['google', 'nope', 'consent.google'],
+    'container id lowercase' => ['google.containers', [['id' => 'gtm-abc123']], 'consent.google.containers'],
+    'container id is a gtag id' => ['google.containers', [['id' => 'G-ABC123']], 'consent.google.containers'],
+    'container id with a hyphen suffix' => ['google.containers', [['id' => 'GTM-ABC-1']], 'consent.google.containers'],
+    'container id missing' => ['google.containers', [['categories' => ['analytics']]], 'consent.google.containers'],
+    'container not an array' => ['google.containers', ['GTM-ABC123'], 'consent.google.containers'],
+    'containers not a list' => ['google.containers', 'GTM-ABC123', 'consent.google.containers'],
+    'containers null' => ['google.containers', null, 'consent.google.containers'],
+    'containers keyed' => ['google.containers', ['main' => ['id' => 'GTM-ABC123']], 'consent.google.containers'],
+    'container duplicated' => ['google.containers', [['id' => 'GTM-ABC123'], ['id' => 'GTM-ABC123', 'categories' => ['marketing']]], 'consent.google.containers'],
+    'container category unknown' => ['google.containers', [['id' => 'GTM-ABC123', 'categories' => ['nope']]], 'consent.google.containers'],
+    'container category required' => ['google.containers', [['id' => 'GTM-ABC123', 'categories' => ['analytics', 'necessary']]], 'consent.google.containers'],
+    'container categories empty' => ['google.containers', [['id' => 'GTM-ABC123', 'categories' => []]], 'consent.google.containers'],
+    'container with a tag-style category key' => ['google.containers', [['id' => 'GTM-ABC123', 'category' => 'marketing']], 'consent.google.containers'],
+    'container with an unknown key' => ['google.containers', [['id' => 'GTM-ABC123', 'categories' => ['marketing'], 'env' => 'prod']], 'consent.google.containers'],
+    'container id with a trailing newline' => ['google.containers', [['id' => "GTM-ABC123\n"]], 'consent.google.containers'],
+    'tag id with a trailing newline' => ['google.tags', [['id' => "G-ABC123\n", 'category' => 'analytics']], 'consent.google.tags'],
+    'container categories not a list' => ['google.containers', [['id' => 'GTM-ABC123', 'categories' => 'analytics']], 'consent.google.containers'],
+    'update_event empty' => ['google.update_event', '', 'consent.google.update_event'],
+    'update_event blank' => ['google.update_event', '  ', 'consent.google.update_event'],
+    'update_event type' => ['google.update_event', false, 'consent.google.update_event'],
+    'tag id is a GTM container' => ['google.tags', [['id' => 'GTM-ABC123', 'category' => 'analytics']], 'consent.google.tags'],
     'reload_on_revoke' => ['reload_on_revoke', 'yes', 'consent.reload_on_revoke'],
     'log.retention_days zero' => ['log.retention_days', 0, 'consent.log.retention_days'],
     'log.retention_days shorter than the consent' => ['log.retention_days', 200, 'consent.log.retention_days'],
@@ -186,4 +209,60 @@ it('rejects a missing signal', function (): void {
 
     expect(fn () => ConsentConfig::fromArray($input))
         ->toThrow(InvalidConfigurationException::class, 'consent.google.signals is missing the "ad_user_data" signal');
+});
+
+it('accepts Google Tag Manager containers with explicit categories', function (): void {
+    $config = ConsentConfig::fromArray(consentConfigWith('google.containers', [
+        ['id' => 'GTM-ABC123', 'categories' => ['marketing']],
+        ['id' => 'GTM-XYZ9', 'categories' => ['analytics', 'marketing', 'analytics']],
+    ]));
+
+    expect($config->googleContainers)->toBe([
+        ['id' => 'GTM-ABC123', 'categories' => ['marketing']],
+        ['id' => 'GTM-XYZ9', 'categories' => ['analytics', 'marketing']],
+    ]);
+});
+
+it('defaults container categories to the optional categories of google.signals', function (): void {
+    $config = ConsentConfig::fromArray(consentConfigWith('google.containers', [['id' => 'GTM-ABC123']]));
+
+    expect($config->googleContainers)->toBe([['id' => 'GTM-ABC123', 'categories' => ['analytics', 'marketing']]]);
+});
+
+it('leaves required categories out of the default container categories', function (): void {
+    $input = consentConfigWith('google.containers', [['id' => 'GTM-ABC123']]);
+    Arr::set($input, 'google.signals.analytics_storage', 'necessary');
+
+    expect(ConsentConfig::fromArray($input)->googleContainers)
+        ->toBe([['id' => 'GTM-ABC123', 'categories' => ['marketing']]]);
+});
+
+it('rejects a container without categories when google.signals maps to no optional category', function (): void {
+    $input = consentConfigWith('google.containers', [['id' => 'GTM-ABC123']]);
+    Arr::set($input, 'google.signals', [
+        'analytics_storage' => 'necessary',
+        'ad_storage' => 'necessary',
+        'ad_user_data' => 'necessary',
+        'ad_personalization' => 'necessary',
+    ]);
+
+    expect(fn () => ConsentConfig::fromArray($input))
+        ->toThrow(InvalidConfigurationException::class, 'consent.google.containers container "GTM-ABC123" has no "categories"');
+});
+
+it('accepts a custom or null update event', function (?string $event): void {
+    expect(ConsentConfig::fromArray(consentConfigWith('google.update_event', $event))->googleUpdateEvent)->toBe($event);
+})->with([
+    'custom' => ['cookie_consent_changed'],
+    'disabled' => [null],
+]);
+
+it('keeps booting a google block published before containers existed', function (): void {
+    $input = consentConfigWith();
+    Arr::forget($input, ['google.containers', 'google.update_event']);
+
+    $config = ConsentConfig::fromArray($input);
+
+    expect($config->googleContainers)->toBe([])
+        ->and($config->googleUpdateEvent)->toBe('consent_update');
 });

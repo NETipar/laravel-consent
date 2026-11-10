@@ -155,6 +155,25 @@ export function registerConsent(Alpine: AlpineLike, config: ConsentConfig, optio
         return usable ? opener : doc.querySelector<HTMLElement>('[data-consent-focus-return]');
     };
 
+    /**
+     * Runs a decision made from the prompt (not from the settings dialog, whose
+     * close handler owns focus). Focus is moved to `[data-consent-focus-return]`
+     * BEFORE the prompt is hidden, so the browser never drops it to `<body>`
+     * (WCAG 2.4.3). Only when focus sat in the prompt, or on `<body>` (Safari
+     * does not focus clicked buttons); focus elsewhere on the page is never touched.
+     */
+    const decideFromPrompt = (prompt: HTMLElement | undefined, decide: () => void): void => {
+        const active = doc.activeElement as HTMLElement | null;
+        const fromPrompt = store().promptOpen && !store().settingsOpen
+            && (active === doc.body || active === null || prompt?.contains(active) === true);
+
+        decide();
+
+        if (fromPrompt) {
+            focusReturnTarget(active, prompt)?.focus({ preventScroll: true });
+        }
+    };
+
     // A fresh literal per component instance: getters must stay live, so no spreading/cloning.
     const makeBanner = (): ConsentBannerComponent & ThisType<ConsentBannerComponent & AlpineMagics> => ({
         selection: {},
@@ -191,15 +210,15 @@ export function registerConsent(Alpine: AlpineLike, config: ConsentConfig, optio
         },
 
         acceptAll(): void {
-            store().acceptAll();
+            decideFromPrompt(this.$refs.prompt, () => store().acceptAll());
         },
 
         rejectAll(): void {
-            store().rejectAll();
+            decideFromPrompt(this.$refs.prompt, () => store().rejectAll());
         },
 
         save(): void {
-            store().save(Object.keys(this.selection).filter((key) => this.selection[key]));
+            decideFromPrompt(this.$refs.prompt, () => store().save(Object.keys(this.selection).filter((key) => this.selection[key])));
         },
 
         openSettings(opener?: OpenerArgument): void {

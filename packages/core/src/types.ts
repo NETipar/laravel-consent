@@ -32,6 +32,12 @@ export interface GoogleTag {
     category: string;
 }
 
+/** A Google Tag Manager container; loads once any of `categories` is granted. */
+export interface GoogleContainer {
+    id: string;
+    categories: string[];
+}
+
 export interface ConsentConfig {
     version: string;
     cookie: {
@@ -51,9 +57,13 @@ export interface ConsentConfig {
     policyUrl: string | null;
     google: {
         tags: GoogleTag[];
+        /** Google Tag Manager containers (v0.2.0+); missing = none. */
+        containers?: GoogleContainer[];
         signals: Record<GoogleSignal, string>;
         adsDataRedaction: boolean;
         urlPassthrough: boolean;
+        /** dataLayer event pushed after each `consent update` once a container is loaded; `null` = none, missing = `'consent_update'`. */
+        updateEvent?: string | null;
     } | null;
 }
 

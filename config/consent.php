@@ -39,6 +39,7 @@ return [
     'policy_url' => null,                   // string URL | [locale => URL] | route name (resolved per request)
     'google' => [
         'tags' => [],                       // [['id' => 'G-XXXX', 'category' => 'analytics'], ['id' => 'AW-XXXX', 'category' => 'marketing']]
+        'containers' => [],                 // GTM: env('GTM_ID') ? [['id' => env('GTM_ID')]] : [] — optional 'categories' (default: the optional ones in `signals`)
         'signals' => [                      // Consent Mode v2 signal → category
             'analytics_storage' => 'analytics',
             'ad_storage' => 'marketing',
@@ -47,5 +48,6 @@ return [
         ],
         'ads_data_redaction' => false,
         'url_passthrough' => false,
+        'update_event' => 'consent_update', // dataLayer event pushed after each `consent update` when containers are configured; null = none
     ],
 ];
