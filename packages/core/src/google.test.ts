@@ -13,6 +13,7 @@ function makeGoogle(overrides: Partial<GoogleConfig> = {}): GoogleConfig {
             { id: 'G-TEST', category: 'analytics' },
             { id: 'AW-TEST', category: 'marketing' },
         ],
+        containers: [],
         signals: {
             analytics_storage: 'analytics',
             ad_storage: 'marketing',
@@ -21,6 +22,7 @@ function makeGoogle(overrides: Partial<GoogleConfig> = {}): GoogleConfig {
         },
         adsDataRedaction: false,
         urlPassthrough: false,
+        updateEvent: 'consent_update',
         ...overrides,
     };
 }
