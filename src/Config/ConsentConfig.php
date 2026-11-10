@@ -23,7 +23,9 @@ final readonly class ConsentConfig
     /** Max 36 chars: the longest generated index name appends 28, and MySQL caps identifiers at 64. */
     private const string TABLE_PATTERN = '/^[a-z_][a-z0-9_]{0,35}$/';
 
-    private const string TAG_PATTERN = '/^(G|AW|GT|DC|UA)-[A-Z0-9\-]+$/';
+    private const string TAG_PATTERN = '/^(G|AW|GT|DC|UA)-[A-Z0-9\-]+$/D';
+
+    private const string CONTAINER_PATTERN = '/^GTM-[A-Z0-9]+$/D';
 
     /** @var list<string> */
     private const array SAME_SITE = ['Lax', 'Strict', 'None'];
@@ -37,6 +39,7 @@ final readonly class ConsentConfig
      * @param  list<array{id: string, category: string}>  $googleTags
      * @param  array<string, string>  $googleSignals
      * @param  list<string>  $logRouteMiddleware
+     * @param  list<array{id: string, categories: list<string>}>  $googleContainers
      */
     public function __construct(
         public string $version,
@@ -65,6 +68,8 @@ final readonly class ConsentConfig
         public bool $logStoreUserAgent,
         public int $logUserAgentMaxLength,
         public bool $logStoreUserId,
+        public array $googleContainers = [],
+        public ?string $googleUpdateEvent = 'consent_update',
     ) {}
 
     /**
@@ -110,6 +115,7 @@ final readonly class ConsentConfig
         ));
 
         $google = self::section($config, 'google');
+        $googleSignals = self::googleSignals($google, $known);
         $log = self::section($config, 'log');
         $route = self::section($log, 'log.route', 'route');
 
@@ -131,7 +137,7 @@ final readonly class ConsentConfig
             reloadOnRevoke: self::boolean($config, 'reload_on_revoke', 'reload_on_revoke'),
             policyUrl: self::policyUrl($config['policy_url'] ?? null),
             googleTags: self::googleTags($google, $known, $optional),
-            googleSignals: self::googleSignals($google, $known),
+            googleSignals: $googleSignals,
             adsDataRedaction: self::boolean($google, 'google.ads_data_redaction', 'ads_data_redaction'),
             urlPassthrough: self::boolean($google, 'google.url_passthrough', 'url_passthrough'),
             logEnabled: self::boolean($log, 'log.enabled', 'enabled'),
@@ -148,6 +154,11 @@ final readonly class ConsentConfig
                 ? self::integer($log, 'log.user_agent_max_length', 'user_agent_max_length', 1, 255)
                 : 255,
             logStoreUserId: self::boolean($log, 'log.store_user_id', 'store_user_id'),
+            // Both keys are optional so a `google` block published before v0.2.0 keeps booting.
+            googleContainers: self::googleContainers($google, $known, $optional, $googleSignals),
+            googleUpdateEvent: array_key_exists('update_event', $google)
+                ? self::googleUpdateEvent($google['update_event'])
+                : 'consent_update',
         );
     }
 
@@ -391,6 +402,90 @@ final readonly class ConsentConfig
         }
 
         return $tags;
+    }
+
+    /**
+     * Google Tag Manager containers. Without `categories` a container loads for
+     * the optional categories its Consent Mode signals map to; required ones
+     * are left out, otherwise the container would load before any decision.
+     *
+     * @param  array<array-key, mixed>  $google
+     * @param  list<string>  $known
+     * @param  list<string>  $optional
+     * @param  array<string, string>  $signals
+     * @return list<array{id: string, categories: list<string>}>
+     */
+    private static function googleContainers(array $google, array $known, array $optional, array $signals): array
+    {
+        $raw = array_key_exists('containers', $google) ? $google['containers'] : [];
+
+        if (! is_array($raw) || ! array_is_list($raw)) {
+            throw InvalidConfigurationException::forKey('google.containers', 'must be a list.');
+        }
+
+        $defaults = array_values(array_filter(
+            $optional,
+            static fn (string $category): bool => in_array($category, $signals, true),
+        ));
+
+        $containers = [];
+        foreach ($raw as $container) {
+            $id = is_array($container) ? ($container['id'] ?? null) : null;
+
+            if (! is_string($id) || preg_match(self::CONTAINER_PATTERN, $id) !== 1) {
+                throw InvalidConfigurationException::forKey('google.containers', 'each container needs an "id" like GTM-XXXXXXX.');
+            }
+
+            if (array_key_exists($id, $containers)) {
+                throw InvalidConfigurationException::forKey('google.containers', "lists the container \"{$id}\" more than once.");
+            }
+
+            /** @var array<array-key, mixed> $container */
+            $unknown = array_diff(array_map(strval(...), array_keys($container)), ['id', 'categories']);
+
+            // A `category` key copied from google.tags would otherwise be ignored and widen the container to the defaults.
+            if ($unknown !== []) {
+                throw InvalidConfigurationException::forKey('google.containers', "container \"{$id}\" accepts only \"id\" and \"categories\", got: ".implode(', ', $unknown).'.');
+            }
+
+            $categories = $container['categories'] ?? null;
+
+            if ($categories === null) {
+                if ($defaults === []) {
+                    throw InvalidConfigurationException::forKey('google.containers', "container \"{$id}\" has no \"categories\" and google.signals maps to no optional category: list its categories.");
+                }
+
+                $categories = $defaults;
+            }
+
+            if (! is_array($categories) || ! array_is_list($categories) || $categories === []) {
+                throw InvalidConfigurationException::forKey('google.containers', "container \"{$id}\" needs \"categories\" as a non-empty list of category keys.");
+            }
+
+            foreach ($categories as $category) {
+                if (! is_string($category) || ! in_array($category, $known, true)) {
+                    throw InvalidConfigurationException::forKey('google.containers', "container \"{$id}\" refers to an unknown category.");
+                }
+
+                if (! in_array($category, $optional, true)) {
+                    throw InvalidConfigurationException::forKey('google.containers', "container \"{$id}\" cannot use the required category \"{$category}\": gate it on optional categories.");
+                }
+            }
+
+            /** @var list<string> $categories */
+            $containers[$id] = ['id' => $id, 'categories' => array_values(array_unique($categories))];
+        }
+
+        return array_values($containers);
+    }
+
+    private static function googleUpdateEvent(mixed $value): ?string
+    {
+        if ($value !== null && (! is_string($value) || trim($value) === '')) {
+            throw InvalidConfigurationException::forKey('google.update_event', 'must be null or a non-empty string.');
+        }
+
+        return $value;
     }
 
     /**

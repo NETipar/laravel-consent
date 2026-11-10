@@ -104,6 +104,7 @@ it('includes the google block when tags are configured', function (): void {
 
     expect(Consent::clientConfig()['google'])->toBe([
         'tags' => [['id' => 'G-8B396W54EK', 'category' => 'analytics']],
+        'containers' => [],
         'signals' => [
             'analytics_storage' => 'analytics',
             'ad_storage' => 'marketing',
@@ -112,7 +113,44 @@ it('includes the google block when tags are configured', function (): void {
         ],
         'adsDataRedaction' => false,
         'urlPassthrough' => false,
+        'updateEvent' => 'consent_update',
     ]);
+});
+
+it('includes the google block when only containers are configured', function (): void {
+    config([
+        'consent.google.containers' => [['id' => 'GTM-ABC123']],
+        'consent.google.update_event' => null,
+    ]);
+    freshConsent();
+
+    expect(Consent::clientConfig()['google'])->toBe([
+        'tags' => [],
+        'containers' => [['id' => 'GTM-ABC123', 'categories' => ['analytics', 'marketing']]],
+        'signals' => [
+            'analytics_storage' => 'analytics',
+            'ad_storage' => 'marketing',
+            'ad_user_data' => 'marketing',
+            'ad_personalization' => 'marketing',
+        ],
+        'adsDataRedaction' => false,
+        'urlPassthrough' => false,
+        'updateEvent' => null,
+    ]);
+});
+
+it('emits camelCase keys for both google lists in the JSON document', function (): void {
+    config([
+        'consent.google.tags' => [['id' => 'G-8B396W54EK', 'category' => 'analytics']],
+        'consent.google.containers' => [['id' => 'GTM-ABC123', 'categories' => ['marketing']]],
+    ]);
+    freshConsent();
+
+    $json = json_encode(Consent::clientConfig(), JSON_THROW_ON_ERROR);
+
+    expect($json)->toContain('"containers":[{"id":"GTM-ABC123","categories":["marketing"]}]')
+        ->toContain('"updateEvent":"consent_update"')
+        ->not->toContain('update_event');
 });
 
 it('resolves labels and texts for the current locale', function (): void {
