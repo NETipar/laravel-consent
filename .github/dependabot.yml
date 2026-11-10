@@ -58,6 +58,12 @@ updates:
       - "javascript"
     commit-message:
       prefix: "npm"
+    ignore:
+      # TypeScript 7 (the native port) no longer ships the JS compiler API that
+      # tsup uses to bundle the .d.ts files (see #2). Lift this once tsup
+      # supports TypeScript 7 or the declarations are emitted by tsc itself.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       typescript:
         patterns:
