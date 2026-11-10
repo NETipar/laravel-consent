@@ -1,6 +1,6 @@
 {
     "name": "@netipar/consent-core",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Framework-agnostic cookie-consent core for Laravel Consent",
     "type": "module",
     "main": "dist/index.cjs",
