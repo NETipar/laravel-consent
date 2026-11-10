@@ -85,17 +85,19 @@ soha nem törlődnek).
 
 | Kulcs | Alapérték | Megjegyzés |
 |---|---|---|
-| `reload_on_revoke` | `true` | Boolean. A betöltött külső címkék nem távolíthatók el, ezért ha a visszavont kategóriához **töltődött be valami** (lefutott egy tiltott script, beállítottak egy Google címkét), az oldal egyszer újratölt. Lásd a README „Complete withdrawal” szakaszát. |
+| `reload_on_revoke` | `true` | Boolean. A betöltött külső címkék nem távolíthatók el, ezért ha a visszavont kategóriához **töltődött be valami** (lefutott egy tiltott script, beállítottak egy Google címkét, betöltődött hozzá egy GTM-konténer), az oldal egyszer újratölt. Lásd a README „Complete withdrawal” szakaszát. |
 | `policy_url` | `null` | `null`, string vagy `[locale => url]` map. Az a string, amely egy létező route nevét adja (`'cookie-policy'`), `route('cookie-policy')`-vé alakul; minden más string változatlanul marad. A map az `app()->getLocale()`, majd az `app.fallback_locale` szerint választ, különben `null`. Kérésenként oldódik fel. |
 
 ### Google Consent Mode v2 (Basic)
 
 | Kulcs | Alapérték | Megjegyzés |
 |---|---|---|
-| `google.tags` | `[]` | `['id' => 'G-XXXX', 'category' => 'analytics']` elemek listája. Az `id` illeszkedik a `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$` mintára; a `category` létező és **nem** kötelező kategória kell legyen. Üres lista = a Google ki van kapcsolva, a `clientConfig()['google']` `null`. |
+| `google.tags` | `[]` | `['id' => 'G-XXXX', 'category' => 'analytics']` elemek listája. Az `id` illeszkedik a `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$` mintára (a `GTM-` azonosító a `google.containers`-be való); a `category` létező és **nem** kötelező kategória kell legyen. Ha a `tags` és a `containers` is üres, a Google ki van kapcsolva, a `clientConfig()['google']` `null`. |
+| `google.containers` | `[]` | Google Tag Manager-konténerek listája: `['id' => 'GTM-XXXX']` vagy `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. Az `id` illeszkedik a `^GTM-[A-Z0-9]+$` mintára, és egyedi; az `id`-n és a `categories`-on kívül más kulcs nem megengedett (a tags-stílusú `category` hiba). A `categories` létező, **nem** kötelező kategóriák nem üres listája; a konténer akkor tölt be, ha bármelyik engedélyezett. `categories` nélkül azok a nem kötelező kategóriák az alapértelmezés, amelyekre a `google.signals` mutat (a kötelezőek kimaradnak; ha nem marad semmi, hiba). Opcionális kulcs. |
 | `google.signals` | `analytics_storage → analytics`, `ad_storage`, `ad_user_data`, `ad_personalization → marketing` | Pontosan ez a négy kulcs; minden érték létező kategória. |
 | `google.ads_data_redaction` | `false` | Boolean. A betöltő előtt `gtag('set', 'ads_data_redaction', true)` fut. |
 | `google.url_passthrough` | `false` | Boolean. A betöltő előtt `gtag('set', 'url_passthrough', true)` fut. |
+| `google.update_event` | `'consent_update'` | Nem üres string vagy `null`. Amint egy konténer betöltődött, minden hozzájárulás-változáskor közvetlenül a `consent update` után `{consent_granted: null}`, majd `{event: <ez>, consent_granted: [...]}` kerül a `dataLayer`-be (a törlés megakadályozza, hogy a GTM tömb-összefésülése megtartsa a visszavont kategóriákat) (`consent_granted` = az engedélyezett kategóriakulcsok a kötelezőkkel együtt, config-sorrendben). `null` = nincs esemény és törlés sem. Az első konténer betöltése előtt nem megy ki, így egy csak gtag-es oldalon nem gyűlnek események egy később betöltődő konténernek (egy később betöltődő második konténer viszont látja a már kiküldött eseményeket); konténer nélkül nincs hatása. Opcionális kulcs. |
 
 ### Hozzájárulási napló
 
@@ -124,7 +126,9 @@ definiál egy legfelső szintű blokkot — `cookie`, `categories`, `log`, `goog
 az **teljes egészében** felváltja a csomag alapértelmezését, ezért teljesnek kell
 lennie, a beágyazott `log.route` és `google.signals` blokkokkal együtt. A
 hiányos blokk induláskor bukik, az üzenet a hiányzó kulcsot nevezi meg.
-(A `log.user_agent_max_length` az egyetlen opcionális kulcs.) A publikált fájlt
+(A `log.user_agent_max_length`, a `google.containers` és a
+`google.update_event` opcionális, hiányukban az alapértelmezés érvényes, így a
+v0.2.0 előtt publikált `google` blokk továbbra is működik.) A publikált fájlt
 tekintse az egyetlen forrásnak, és helyben szerkessze.
 
 A hozzájárulási napló route-ja, middleware-je és rate limitje egyszer, induláskor
@@ -195,6 +199,7 @@ feloldva.
   "policyUrl": "/suti-kezeles",
   "google": {
     "tags": [{ "id": "G-XXXXXXX", "category": "analytics" }],
+    "containers": [{ "id": "GTM-XXXXXXX", "categories": ["analytics", "marketing"] }],
     "signals": {
       "analytics_storage": "analytics",
       "ad_storage": "marketing",
@@ -202,7 +207,8 @@ feloldva.
       "ad_personalization": "marketing"
     },
     "adsDataRedaction": false,
-    "urlPassthrough": false
+    "urlPassthrough": false,
+    "updateEvent": "consent_update"
   }
 }
 ```
@@ -212,7 +218,9 @@ feloldva.
 - A `log` `null`, ha a `log.enabled` `false`; a végpont relatív, így mindig
   egyezik azzal a hosttal, amelyen a látogató éppen jár. Egyedi
   `log.route.prefix` megváltoztatja.
-- A `google` `null`, ha a `google.tags` üres.
+- A `google` `null`, ha a `google.tags` és a `google.containers` is üres. A
+  `containers[].categories` mindig explicit (az alapértelmezést a szerver
+  oldja fel).
 - A dokumentumot soha ne gyorsítótárazza nyelvek vagy kérések között.
 
 Ismert korlát: a `texts` szerveroldalon, kérésenként oldódik fel, és a JS

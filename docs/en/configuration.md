@@ -85,17 +85,19 @@ never purged).
 
 | Key | Default | Notes |
 |---|---|---|
-| `reload_on_revoke` | `true` | Boolean. Loaded third-party tags cannot be unloaded, so after a revoke that affected a category something **was loaded for** (a gated script ran, a Google tag was configured), the page reloads once. See the README section "Complete withdrawal". |
+| `reload_on_revoke` | `true` | Boolean. Loaded third-party tags cannot be unloaded, so after a revoke that affected a category something **was loaded for** (a gated script ran, a Google tag was configured, a GTM container loaded for it), the page reloads once. See the README section "Complete withdrawal". |
 | `policy_url` | `null` | `null`, a string, or a `[locale => url]` map. A string that names a registered route (`'cookie-policy'`) becomes `route('cookie-policy')`; any other string is used verbatim. A map picks `app()->getLocale()`, then `app.fallback_locale`, then `null`. Resolved per request. |
 
 ### Google Consent Mode v2 (Basic)
 
 | Key | Default | Notes |
 |---|---|---|
-| `google.tags` | `[]` | List of `['id' => 'G-XXXX', 'category' => 'analytics']`. `id` matches `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$`; `category` must exist and must **not** be required. Empty list = Google is off and `clientConfig()['google']` is `null`. |
+| `google.tags` | `[]` | List of `['id' => 'G-XXXX', 'category' => 'analytics']`. `id` matches `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$` (a `GTM-` id goes to `google.containers`); `category` must exist and must **not** be required. With `tags` and `containers` both empty Google is off and `clientConfig()['google']` is `null`. |
+| `google.containers` | `[]` | List of Google Tag Manager containers: `['id' => 'GTM-XXXX']` or `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. `id` matches `^GTM-[A-Z0-9]+$` and is unique; no keys besides `id` and `categories` (a tag-style `category` is an error). `categories` is a non-empty list of existing, **non-required** categories; the container loads once any of them is granted. Without `categories` the optional categories that `google.signals` maps to are used (required ones are left out; none left = error). Optional key. |
 | `google.signals` | `analytics_storage → analytics`, `ad_storage`, `ad_user_data`, `ad_personalization → marketing` | Exactly these four keys; every value is an existing category. |
 | `google.ads_data_redaction` | `false` | Boolean. Sends `gtag('set', 'ads_data_redaction', true)` before the loader. |
 | `google.url_passthrough` | `false` | Boolean. Sends `gtag('set', 'url_passthrough', true)` before the loader. |
+| `google.update_event` | `'consent_update'` | Non-empty string or `null`. Once a container has loaded, every consent change pushes `{consent_granted: null}` and then `{event: <this>, consent_granted: [...]}` to the `dataLayer` right after `consent update` (the reset stops GTM's array merge from keeping revoked categories) (`consent_granted` = the granted category keys, required ones included, in config order). `null` = no event and no reset. Never pushed before the first container is on the page, so a gtag-only page collects no events for a container that loads later (a second container loading later does see the events already pushed); ignored without containers. Optional key. |
 
 ### Consent log
 
@@ -123,8 +125,9 @@ only the top-level keys. As soon as your published `config/consent.php`
 defines a top-level block — `cookie`, `categories`, `log`, `google` — that block
 replaces the package default **entirely**, so it has to be complete, including
 the nested `log.route` and `google.signals`. An incomplete block fails at boot
-with the missing key in the message. (`log.user_agent_max_length` is the one
-optional key.) Keep the published file as the single source and edit it in
+with the missing key in the message. (`log.user_agent_max_length`,
+`google.containers` and `google.update_event` are optional and fall back to
+their defaults, so a `google` block published before v0.2.0 keeps working.) Keep the published file as the single source and edit it in
 place.
 
 The consent log route, its middleware and its rate limit are registered once
@@ -192,6 +195,7 @@ the JS core reads. It is built per request and resolved for the current locale.
   "policyUrl": "/cookie-policy",
   "google": {
     "tags": [{ "id": "G-XXXXXXX", "category": "analytics" }],
+    "containers": [{ "id": "GTM-XXXXXXX", "categories": ["analytics", "marketing"] }],
     "signals": {
       "analytics_storage": "analytics",
       "ad_storage": "marketing",
@@ -199,7 +203,8 @@ the JS core reads. It is built per request and resolved for the current locale.
       "ad_personalization": "marketing"
     },
     "adsDataRedaction": false,
-    "urlPassthrough": false
+    "urlPassthrough": false,
+    "updateEvent": "consent_update"
   }
 }
 ```
@@ -209,7 +214,9 @@ the JS core reads. It is built per request and resolved for the current locale.
 - `log` is `null` when `log.enabled` is `false`; the endpoint is relative so it
   always matches the host the visitor is on. A custom `log.route.prefix`
   changes it.
-- `google` is `null` when `google.tags` is empty.
+- `google` is `null` when both `google.tags` and `google.containers` are
+  empty. `containers[].categories` is always explicit (defaults resolved on
+  the server).
 - Never cache the document across locales or requests.
 
 A known limitation: `texts` are resolved on the server per request and

@@ -176,7 +176,7 @@ An entry is an exact name or a prefix pattern ending in `*` (or a rich array, se
 
 **Where.** Each cookie is deleted without a `Domain` attribute, then with the current host, then with each parent domain (`www.example.com` → `example.com`), because Google Analytics sets `_ga*` on the registrable domain.
 
-**Reload.** Scripts that already ran cannot be unloaded: gtag.js would simply recreate `_ga` on its next hit. When a revoked category had something loaded for it (a gated script ran, a Google tag was configured) and `reload_on_revoke` is `true` (the default), the page reloads once after the listeners have finished. Set it to `false` if you handle this yourself.
+**Reload.** Scripts that already ran cannot be unloaded: gtag.js would simply recreate `_ga` on its next hit. When a revoked category had something loaded for it (a gated script ran, a Google tag was configured, a GTM container loaded for it) and `reload_on_revoke` is `true` (the default), the page reloads once after the listeners have finished. Set it to `false` if you handle this yourself.
 
 **Housekeeping on every page load.** Once a visitor has decided, the JS core removes the configured cookies (`categories.*.cookies`, exact names and `prefix*` patterns, on the host and every parent domain) of every optional category that is not granted — on the initial page load and on every re-sync (Livewire navigation, tab becoming visible, bfcache restore), not only at the moment of a revocation. So a tag that loaded before the decision, or a second tab that kept writing `_ga*`, cannot leave residue behind. Visitors who have not decided yet are never touched (nothing is purged before a decision), required categories are never purged, and this cleanup never triggers a page reload, because nothing was loaded for a category that is not granted.
 
@@ -336,11 +336,30 @@ This works with `src`, `async`/`defer`, `data-consent-type="module"` and several
         ['id' => 'G-XXXXXXX', 'category' => 'analytics'],
         ['id' => 'AW-XXXXXXXXX', 'category' => 'marketing'],
     ],
-    // 'signals', 'ads_data_redaction', 'url_passthrough': see the configuration reference
+    // 'signals', 'ads_data_redaction', 'url_passthrough', 'update_event': see the configuration reference
 ],
 ```
 
 **Basic** mode: Google tags do not load at all without consent. After the first grant of a tag's category the core sends `consent default` with the four signals (`ad_storage`, `analytics_storage`, `ad_user_data`, `ad_personalization`), loads `gtag.js` and configures the granted tags. A later grant sends `consent update` plus `config` for the tags that just became granted. A revoke sends `consent update` with the signals `denied`, purges the cookies and — since loaded tags cannot be unloaded — reloads (see [Complete withdrawal](#complete-withdrawal)). `ads_data_redaction` and `url_passthrough` are `gtag('set', …)` calls made before the loader. Remove any hand-written `gtag.js` snippet from your layout.
+
+### Google Tag Manager
+
+```php
+'google' => [
+    'tags' => [],
+    'containers' => env('GTM_ID') ? [['id' => env('GTM_ID')]] : [], // categories default to the optional ones in 'signals'
+    // or: [['id' => 'GTM-XXXXXXX', 'categories' => ['analytics', 'marketing']]]
+],
+```
+
+A container loads once **any** of its categories is granted (a gated script needs all of them); inside the container, the Consent Mode signals gate the individual tags. The order is the same as for tags: `consent default` and the `set` calls, then `dataLayer.push({'gtm.start': …, event: 'gtm.js'})` and the `gtm.js` script — no `gtag('js')`, no `gtag('config')`. Tags and containers share one `dataLayer` and one `consent default`. Every later change sends `consent update`; once a container is on the page it is followed by `{consent_granted: null}` and `{event: 'consent_update', consent_granted: ['necessary', 'analytics', …]}` (rename it with `update_event`, `null` turns both off). The reset keeps GTM's array merge from reporting revoked categories, so a default Data Layer Variable reads the current list. A container that becomes eligible later loads then, once. Revoking a category a loaded container covers reloads the page like any other loaded tag.
+
+Two things stay outside the package:
+
+- **No `<noscript>` iframe.** The GTM `<noscript>` fallback cannot be gated by consent, so the package does not render it — do not add it to your layout either.
+- **Page views in an SPA.** With Inertia or Livewire `wire:navigate` the container loads once per full page load; count the client-side navigations with a **History Change** trigger in the GTM container.
+
+See the [integration guide](docs/en/integration.md#google-tag-manager) for the Inertia and Livewire recipes.
 
 ## Accessibility
 
