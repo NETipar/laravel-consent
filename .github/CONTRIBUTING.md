@@ -88,6 +88,10 @@ The release flow is automated:
    tag (a release created with `GITHUB_TOKEN` does not fire its
    `release.published` trigger). A release created by hand in the GitHub UI
    still triggers it directly.
+   It publishes through npm trusted publishing (OIDC): each package trusts
+   `NETipar/laravel-consent` / `npm-publish.yml` on npmjs.com, so there is no
+   `NPM_TOKEN` secret to rotate. Renaming the workflow file breaks publishing
+   until the trusted publisher of all three packages is updated.
 6. Packagist auto-indexes the new tag via webhook.
 
 ## Branch protection (main)
