@@ -12,10 +12,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 - `google.update_event` (default `'consent_update'`, `null` = off): once a container is loaded, every consent change pushes `{consent_granted: null}` and `{event: …, consent_granted: [...]}` after `consent update`, so GTM triggers can react without a reload; the reset keeps GTM's array merge from reporting revoked categories. gtag-only setups get no new `dataLayer` entries.
 - `GoogleContainer` type exported from `@netipar/consent-core`; `attachGoogle()` is a no-op without a `window` (SSR).
 
+### Changed
+
+- The npm packages are built with tsup 9: the JavaScript output is unchanged, the declaration files list type exports as `export type { … }` instead of inline `type` modifiers.
+
 ### Fixed
 
 - `google.tags[].id` no longer accepts an id with a trailing newline (`$` without the `D` modifier).
-
 - Deciding from the prompt ("Accept all", "Reject all", or `save()` from a prompt with its own save button) no longer drops focus to `<body>` (WCAG 2.4.3): in `@netipar/consent-alpine` and `@netipar/consent-vue3` focus moves to the `[data-consent-focus-return]` element before the prompt is hidden, only when focus was in the prompt or on `<body>` (Safari) — focus elsewhere on the page is left alone. Calling the store / `useConsent()` decision methods directly bypasses the component and is not covered.
 
 ## v0.1.0 - 2026-10-10
