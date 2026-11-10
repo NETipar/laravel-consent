@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: write  # dispatch the npm publish workflow
 
 jobs:
   release:
@@ -73,3 +74,11 @@ jobs:
             --title "v${{ inputs.version }}" \
             --notes-file /tmp/release-notes.md \
             --target main
+
+      # A release created with GITHUB_TOKEN does not trigger other workflows, so
+      # npm-publish.yml's `release: published` never fires from here; a
+      # workflow_dispatch is the one event GITHUB_TOKEN may start.
+      - name: Publish the npm packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run npm-publish.yml --ref main -f tag="v${{ inputs.version }}"

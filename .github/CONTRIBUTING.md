@@ -80,12 +80,14 @@ may contain breaking changes; patch releases (`0.x.y`) are bug-fix only.
 The release flow is automated:
 
 1. CHANGELOG `## Unreleased` → `## v0.X.Y - YYYY-MM-DD`.
-2. `bump-version.sh` updates the 4 npm `package.json` files.
+2. `bump-version.sh` updates the three npm `package.json` files.
 3. A `Release v0.X.Y` commit is pushed to `main`.
 4. `gh release create` tags + creates the GitHub Release with the
    CHANGELOG entry as release notes.
-5. CI's "Publish npm packages" workflow auto-publishes to npm on the
-   `release.published` event.
+5. The release workflow then dispatches "Publish npm packages" for the new
+   tag (a release created with `GITHUB_TOKEN` does not fire its
+   `release.published` trigger). A release created by hand in the GitHub UI
+   still triggers it directly.
 6. Packagist auto-indexes the new tag via webhook.
 
 ## Branch protection (main)
