@@ -31,6 +31,9 @@ final readonly class ConsentConfig
     private const array SAME_SITE = ['Lax', 'Strict', 'None'];
 
     /** @var list<string> */
+    private const array GOOGLE_MODES = ['basic', 'advanced'];
+
+    /** @var list<string> */
     private const array SIGNALS = ['analytics_storage', 'ad_storage', 'ad_user_data', 'ad_personalization'];
 
     /**
@@ -40,6 +43,7 @@ final readonly class ConsentConfig
      * @param  array<string, string>  $googleSignals
      * @param  list<string>  $logRouteMiddleware
      * @param  list<array{id: string, categories: list<string>}>  $googleContainers
+     * @param  'basic'|'advanced'  $googleMode
      */
     public function __construct(
         public string $version,
@@ -70,6 +74,7 @@ final readonly class ConsentConfig
         public bool $logStoreUserId,
         public array $googleContainers = [],
         public ?string $googleUpdateEvent = 'consent_update',
+        public string $googleMode = 'basic',
     ) {}
 
     /**
@@ -159,6 +164,8 @@ final readonly class ConsentConfig
             googleUpdateEvent: array_key_exists('update_event', $google)
                 ? self::googleUpdateEvent($google['update_event'])
                 : 'consent_update',
+            // Optional so a `google` block published before v0.3.0 keeps its Basic behaviour.
+            googleMode: array_key_exists('mode', $google) ? self::googleMode($google['mode']) : 'basic',
         );
     }
 
@@ -408,6 +415,8 @@ final readonly class ConsentConfig
      * Google Tag Manager containers. Without `categories` a container loads for
      * the optional categories its Consent Mode signals map to; required ones
      * are left out, otherwise the container would load before any decision.
+     * In Advanced mode the container loads regardless, and the categories
+     * only decide which revokes reload the page.
      *
      * @param  array<array-key, mixed>  $google
      * @param  list<string>  $known
@@ -477,6 +486,21 @@ final readonly class ConsentConfig
         }
 
         return array_values($containers);
+    }
+
+    /**
+     * Consent Mode v2 implementation: `basic` loads Google only after a grant,
+     * `advanced` on every page load with the signals `denied` before a decision.
+     *
+     * @return 'basic'|'advanced'
+     */
+    private static function googleMode(mixed $value): string
+    {
+        if (! is_string($value) || ! in_array($value, self::GOOGLE_MODES, true)) {
+            throw InvalidConfigurationException::forKey('google.mode', 'must be one of: '.implode(', ', self::GOOGLE_MODES).'.');
+        }
+
+        return $value;
     }
 
     private static function googleUpdateEvent(mixed $value): ?string

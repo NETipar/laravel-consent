@@ -175,6 +175,10 @@ it('rejects invalid configuration and names the offending key', function (string
     'update_event empty' => ['google.update_event', '', 'consent.google.update_event'],
     'update_event blank' => ['google.update_event', '  ', 'consent.google.update_event'],
     'update_event type' => ['google.update_event', false, 'consent.google.update_event'],
+    'mode unknown' => ['google.mode', 'strict', 'consent.google.mode'],
+    'mode capitalised' => ['google.mode', 'Advanced', 'consent.google.mode'],
+    'mode null' => ['google.mode', null, 'consent.google.mode'],
+    'mode type' => ['google.mode', true, 'consent.google.mode'],
     'tag id is a GTM container' => ['google.tags', [['id' => 'GTM-ABC123', 'category' => 'analytics']], 'consent.google.tags'],
     'reload_on_revoke' => ['reload_on_revoke', 'yes', 'consent.reload_on_revoke'],
     'log.retention_days zero' => ['log.retention_days', 0, 'consent.log.retention_days'],
@@ -256,6 +260,17 @@ it('accepts a custom or null update event', function (?string $event): void {
     'custom' => ['cookie_consent_changed'],
     'disabled' => [null],
 ]);
+
+it('accepts the Consent Mode implementation', function (string $mode): void {
+    expect(ConsentConfig::fromArray(consentConfigWith('google.mode', $mode))->googleMode)->toBe($mode);
+})->with(['basic', 'advanced']);
+
+it('keeps Basic for a google block published before the mode existed', function (): void {
+    $input = consentConfigWith();
+    Arr::forget($input, 'google.mode');
+
+    expect(ConsentConfig::fromArray($input)->googleMode)->toBe('basic');
+});
 
 it('keeps booting a google block published before containers existed', function (): void {
     $input = consentConfigWith();

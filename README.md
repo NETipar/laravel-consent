@@ -9,7 +9,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/NETipar/laravel-consent/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/NETipar/laravel-consent/actions?query=workflow%3Atests)
 [![Total Downloads](https://img.shields.io/packagist/dt/netipar/laravel-consent.svg?style=flat-square)](https://packagist.org/packages/netipar/laravel-consent)
 
-Headless cookie consent for Laravel: a versioned consent cookie, a server-side API and a Blade directive, a framework-free JavaScript core with **Google Consent Mode v2 (Basic)**, and unstyled **Alpine/Livewire** and **Vue 3** adapters. The package ships behaviour and accessibility wiring — your application owns all markup and styling (Tailwind, shadcn-vue, plain CSS).
+Headless cookie consent for Laravel: a versioned consent cookie, a server-side API and a Blade directive, a framework-free JavaScript core with **Google Consent Mode v2 (Basic or Advanced)**, and unstyled **Alpine/Livewire** and **Vue 3** adapters. The package ships behaviour and accessibility wiring — your application owns all markup and styling (Tailwind, shadcn-vue, plain CSS).
 
 > Coming from `netipar/cookie-consent` 1.x? See [UPGRADE.md](UPGRADE.md).
 
@@ -299,7 +299,8 @@ Consent::granted();             // list<string> — granted keys, required ones 
 Consent::hasDecision();         // bool — a decision for the current config version exists
 Consent::decision();            // ConsentDecision { granted, version }
 Consent::categories();          // list<Category> — key, required, label(), description()
-Consent::clientConfig();        // array — what @consentConfig prints, locale-resolved
+Consent::clientConfig();        // array — the JSON @consentConfig prints, locale-resolved
+Consent::configScripts($nonce); // string — the full @consentConfig markup (Advanced: + inline bootstrap)
 ```
 
 `allows()` throws `UnknownCategoryException` for a key that is not configured. Pass a `Request` as the last argument to evaluate a specific request.
@@ -314,7 +315,7 @@ In Blade:
 @endconsent
 ```
 
-`@unlessconsent('x')` and `@elseconsent('x')` (always with an argument) exist as well. **Never write a bare `@elseconsent`** — it fails at run time; use `@else`. Keep whitespace before `@else` and `@endconsent`. `@consentConfig` prints `<script type="application/json" id="consent-config">…</script>`.
+`@unlessconsent('x')` and `@elseconsent('x')` (always with an argument) exist as well. **Never write a bare `@elseconsent`** — it fails at run time; use `@else`. Keep whitespace before `@else` and `@endconsent`. `@consentConfig` prints `<script type="application/json" id="consent-config">…</script>` (in Google Consent Mode Advanced also an inline bootstrap script; `@consentConfig($nonce)` passes a CSP nonce).
 
 ## Gating third-party scripts
 
@@ -332,6 +333,7 @@ This works with `src`, `async`/`defer`, `data-consent-type="module"` and several
 
 ```php
 'google' => [
+    'mode' => 'basic', // or 'advanced'
     'tags' => [
         ['id' => 'G-XXXXXXX', 'category' => 'analytics'],
         ['id' => 'AW-XXXXXXXXX', 'category' => 'marketing'],
@@ -340,7 +342,13 @@ This works with `src`, `async`/`defer`, `data-consent-type="module"` and several
 ],
 ```
 
-**Basic** mode: Google tags do not load at all without consent. After the first grant of a tag's category the core sends `consent default` with the four signals (`ad_storage`, `analytics_storage`, `ad_user_data`, `ad_personalization`), loads `gtag.js` and configures the granted tags. A later grant sends `consent update` plus `config` for the tags that just became granted. A revoke sends `consent update` with the signals `denied`, purges the cookies and — since loaded tags cannot be unloaded — reloads (see [Complete withdrawal](#complete-withdrawal)). `ads_data_redaction` and `url_passthrough` are `gtag('set', …)` calls made before the loader. Remove any hand-written `gtag.js` snippet from your layout.
+**Basic** mode (the default): Google tags do not load at all without consent. After the first grant of a tag's category the core sends `consent default` with the four signals (`ad_storage`, `analytics_storage`, `ad_user_data`, `ad_personalization`), loads `gtag.js` and configures the granted tags. A later grant sends `consent update` plus `config` for the tags that just became granted. A revoke sends `consent update` with the signals `denied`, purges the cookies and — since loaded tags cannot be unloaded — reloads (see [Complete withdrawal](#complete-withdrawal)). `ads_data_redaction` and `url_passthrough` are `gtag('set', …)` calls made before the loader. Remove any hand-written `gtag.js` snippet from your layout.
+
+**Advanced** mode (`'mode' => 'advanced'`, v0.3.0+): every tag and container loads on every page load, before and regardless of the decision. `@consentConfig` then also prints an inline script that runs synchronously, with no idle deferral: `consent default` first — all four signals `denied` without a decision (or with one stored for an older `version`), the stored decision for a returning visitor — then the `set` calls, an event-less `{consent_granted: [...]}` when a container is configured, and the loaders. Google tags start in their consent-denied state and send cookieless pings until `consent update` grants a signal. The decision is read from the cookie in the browser, so full-page caches stay correct; the JS core takes over what the inline script sent and never sends a second default or loads a container twice. Later changes behave as in Basic, including the reload after revoking a category that was granted while something was loaded for it.
+
+In Advanced mode put `@consentConfig` at the **top of `<head>`** — before anything that pushes to `dataLayer`, so `consent default` is its first entry (Inertia: in the root view too) — and pass your CSP nonce: `@consentConfig($nonce)`, by default `Vite::cspNonce()` (a full-page cache must serve the page and its nonce together). Update the npm packages to 0.3.0 with the Composer package: an older JS core would load Google a second time.
+
+**Basic or Advanced?** Basic is the safe default: nothing reaches Google before consent. Advanced lets Google model the conversions and visits of visitors who do not consent, from cookieless pings; choose it only when your consent policy allows Google to receive requests before consent, say so in your cookie policy, and turn on `ads_data_redaction`.
 
 ### Google Tag Manager
 
@@ -352,11 +360,12 @@ This works with `src`, `async`/`defer`, `data-consent-type="module"` and several
 ],
 ```
 
-A container loads once **any** of its categories is granted (a gated script needs all of them); inside the container, the Consent Mode signals gate the individual tags. The order is the same as for tags: `consent default` and the `set` calls, then `dataLayer.push({'gtm.start': …, event: 'gtm.js'})` and the `gtm.js` script — no `gtag('js')`, no `gtag('config')`. Tags and containers share one `dataLayer` and one `consent default`. Every later change sends `consent update`; once a container is on the page it is followed by `{consent_granted: null}` and `{event: 'consent_update', consent_granted: ['necessary', 'analytics', …]}` (rename it with `update_event`, `null` turns both off). The reset keeps GTM's array merge from reporting revoked categories, so a default Data Layer Variable reads the current list. A container that becomes eligible later loads then, once. Revoking a category a loaded container covers reloads the page like any other loaded tag.
+In Basic mode a container loads once **any** of its categories is granted (a gated script needs all of them); in Advanced mode it loads on every page load and its `categories` only decide which revokes reload the page. Inside the container, the Consent Mode signals gate the individual tags. The order is the same as for tags: `consent default` and the `set` calls, then `dataLayer.push({'gtm.start': …, event: 'gtm.js'})` and the `gtm.js` script — no `gtag('js')`, no `gtag('config')`. Tags and containers share one `dataLayer` and one `consent default`. Every later change sends `consent update`; once a container is on the page it is followed by `{consent_granted: null}` and `{event: 'consent_update', consent_granted: ['necessary', 'analytics', …]}` (rename it with `update_event`, `null` turns both off). The reset keeps GTM's array merge from reporting revoked categories, so a default Data Layer Variable reads the current list. A container that becomes eligible later loads then, once. Revoking a category a loaded container covers reloads the page like any other loaded tag.
 
-Two things stay outside the package:
+These stay outside the package:
 
-- **No `<noscript>` iframe.** The GTM `<noscript>` fallback cannot be gated by consent, so the package does not render it — do not add it to your layout either.
+- **No `<noscript>` iframe.** The GTM `<noscript>` fallback cannot be gated by consent (nor receive a `consent default`), so the package does not render it — do not add it to your layout either.
+- **Non-Google tags in Advanced mode.** The container runs before the decision, so gating its non-Google tags (Meta Pixel, Hotjar, …) is the container owner's job: give every one of them **Require additional consent** in its Consent Settings, and fire the ones that must run right after a decision on the `consent_update` event. In Advanced mode `consent_granted` is also pushed on every page load, before `gtm.js`; in Basic mode only on a change, so on a plain page load it is unset even for a visitor who consented earlier: gate on the consent checks, not on that variable alone.
 - **Page views in an SPA.** With Inertia or Livewire `wire:navigate` the container loads once per full page load; count the client-side navigations with a **History Change** trigger in the GTM container.
 
 See the [integration guide](docs/en/integration.md#google-tag-manager) for the Inertia and Livewire recipes.

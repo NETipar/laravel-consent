@@ -4,6 +4,19 @@ All notable changes to `netipar/laravel-consent` will be documented in this file
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See [UPGRADE.md](UPGRADE.md) for migration notes.
 
+## v0.3.0 - 2026-11-15
+
+### Added
+
+- Google Consent Mode v2 **Advanced**: `google.mode` (`'basic'` | `'advanced'`, default `'basic'`). In Advanced mode every gtag.js tag and GTM container loads on every page load, before and regardless of the decision: `consent default` first (all four signals `denied` without a decision or with one stored for an older `version`, the stored decision for a returning visitor), then the `set` calls, an event-less `{consent_granted: [...]}` push when a container is configured (so a GTM Data Layer Variable holds the real list on a plain page load), and the loaders. Later changes are unchanged (`consent update`, then `{consent_granted: null}` and the `update_event` once a container is loaded). `reload_on_revoke` still applies: a category counts as loaded once it is granted, so revoking it reloads, while a first-visit "Reject all" does not. A container's `categories` only scope that reload in Advanced mode. `clientConfig()['google']` gains `mode`; `GoogleConsentMode` type exported from `@netipar/consent-core`.
+- In Advanced mode `@consentConfig` also prints an inline script that sends `consent default` and loads the tags and containers synchronously where the directive stands, with no idle deferral, so `consent default` is the first `dataLayer` entry when `@consentConfig` sits at the top of `<head>` and no inline application push can precede it. The decision is read from the cookie in the browser, so the output is the same for every visitor (full-page caches). The JS core adopts what the inline script sent: exactly one `consent default` and one `gtm.js` per container per page load, also across `sync()`, `livewire:navigated` and bfcache restores; it sends `consent update` only if its own read differs. Without the inline script the core loads Advanced mode synchronously at start-up.
+- `@consentConfig($nonce)` (or `nonce: $nonce`): the CSP nonce for that inline script, by default `Vite::cspNonce()`; it is copied onto the injected `gtag.js` / `gtm.js` scripts. `Consent::configScripts(?string $nonce = null)` returns the directive's markup.
+
+### Changed
+
+- A missing `google.mode` keeps Basic, in the published config and in a client config from an older server, so existing installs behave as before: in Basic mode `@consentConfig` prints only the JSON script, as in v0.2.0 (its `google` block now carries `mode`). An unknown value fails at boot. Advanced mode needs the npm packages at 0.3.0 as well: an older JS core would load Google a second time.
+- `@consentConfig` compiles to a `Consent::configScripts()` call instead of an inline `json_encode()`: run `php artisan view:clear` (or `view:cache`) after updating, otherwise views compiled by v0.2.0 never print the Advanced inline script.
+
 ## v0.2.0 - 2026-11-10
 
 ### Added

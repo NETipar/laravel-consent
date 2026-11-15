@@ -88,12 +88,13 @@ never purged).
 | `reload_on_revoke` | `true` | Boolean. Loaded third-party tags cannot be unloaded, so after a revoke that affected a category something **was loaded for** (a gated script ran, a Google tag was configured, a GTM container loaded for it), the page reloads once. See the README section "Complete withdrawal". |
 | `policy_url` | `null` | `null`, a string, or a `[locale => url]` map. A string that names a registered route (`'cookie-policy'`) becomes `route('cookie-policy')`; any other string is used verbatim. A map picks `app()->getLocale()`, then `app.fallback_locale`, then `null`. Resolved per request. |
 
-### Google Consent Mode v2 (Basic)
+### Google Consent Mode v2
 
 | Key | Default | Notes |
 |---|---|---|
+| `google.mode` | `'basic'` | `'basic'` or `'advanced'` (v0.3.0+). Basic: nothing from Google loads before a grant. Advanced: every tag and container loads on every page load, after a `consent default` with all four signals `denied` while there is no decision; the signals gate the tags. `@consentConfig` then prints an inline script that does this synchronously in `<head>` (see the [integration guide](integration.md#google-consent-mode-v2)). Any other value is an error. Optional key. |
 | `google.tags` | `[]` | List of `['id' => 'G-XXXX', 'category' => 'analytics']`. `id` matches `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$` (a `GTM-` id goes to `google.containers`); `category` must exist and must **not** be required. With `tags` and `containers` both empty Google is off and `clientConfig()['google']` is `null`. |
-| `google.containers` | `[]` | List of Google Tag Manager containers: `['id' => 'GTM-XXXX']` or `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. `id` matches `^GTM-[A-Z0-9]+$` and is unique; no keys besides `id` and `categories` (a tag-style `category` is an error). `categories` is a non-empty list of existing, **non-required** categories; the container loads once any of them is granted. Without `categories` the optional categories that `google.signals` maps to are used (required ones are left out; none left = error). Optional key. |
+| `google.containers` | `[]` | List of Google Tag Manager containers: `['id' => 'GTM-XXXX']` or `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. `id` matches `^GTM-[A-Z0-9]+$` and is unique; no keys besides `id` and `categories` (a tag-style `category` is an error). `categories` is a non-empty list of existing, **non-required** categories; in Basic mode the container loads once any of them is granted, in Advanced mode it loads regardless and they only decide which revokes reload the page. Without `categories` the optional categories that `google.signals` maps to are used (required ones are left out; none left = error). Optional key. |
 | `google.signals` | `analytics_storage → analytics`, `ad_storage`, `ad_user_data`, `ad_personalization → marketing` | Exactly these four keys; every value is an existing category. |
 | `google.ads_data_redaction` | `false` | Boolean. Sends `gtag('set', 'ads_data_redaction', true)` before the loader. |
 | `google.url_passthrough` | `false` | Boolean. Sends `gtag('set', 'url_passthrough', true)` before the loader. |
@@ -126,8 +127,9 @@ defines a top-level block — `cookie`, `categories`, `log`, `google` — that b
 replaces the package default **entirely**, so it has to be complete, including
 the nested `log.route` and `google.signals`. An incomplete block fails at boot
 with the missing key in the message. (`log.user_agent_max_length`,
-`google.containers` and `google.update_event` are optional and fall back to
-their defaults, so a `google` block published before v0.2.0 keeps working.) Keep the published file as the single source and edit it in
+`google.containers`, `google.update_event` and `google.mode` are optional and
+fall back to their defaults, so a `google` block published before v0.2.0 or
+v0.3.0 keeps working — in Basic mode.) Keep the published file as the single source and edit it in
 place.
 
 The consent log route, its middleware and its rate limit are registered once
@@ -194,6 +196,7 @@ the JS core reads. It is built per request and resolved for the current locale.
   "log": { "endpoint": "/consent/log", "idCookieName": "__cookie_consent_id" },
   "policyUrl": "/cookie-policy",
   "google": {
+    "mode": "basic",
     "tags": [{ "id": "G-XXXXXXX", "category": "analytics" }],
     "containers": [{ "id": "GTM-XXXXXXX", "categories": ["analytics", "marketing"] }],
     "signals": {

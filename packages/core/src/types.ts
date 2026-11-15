@@ -5,6 +5,13 @@
 
 export type GoogleSignal = 'analytics_storage' | 'ad_storage' | 'ad_user_data' | 'ad_personalization';
 
+/**
+ * Consent Mode v2 implementation (v0.3.0+). `basic`: Google loads only after a
+ * grant. `advanced`: every tag and container loads on every page load, before
+ * any decision with all four signals `denied`.
+ */
+export type GoogleConsentMode = 'basic' | 'advanced';
+
 export interface ConsentCategory {
     key: string;
     required: boolean;
@@ -32,7 +39,11 @@ export interface GoogleTag {
     category: string;
 }
 
-/** A Google Tag Manager container; loads once any of `categories` is granted. */
+/**
+ * A Google Tag Manager container. Basic: loads once any of `categories` is
+ * granted. Advanced: loads regardless; `categories` only decide which revokes
+ * reload the page.
+ */
 export interface GoogleContainer {
     id: string;
     categories: string[];
@@ -56,6 +67,8 @@ export interface ConsentConfig {
     log: { endpoint: string; idCookieName: string } | null;
     policyUrl: string | null;
     google: {
+        /** Missing = `'basic'` (a server older than v0.3.0). */
+        mode?: GoogleConsentMode;
         tags: GoogleTag[];
         /** Google Tag Manager containers (v0.2.0+); missing = none. */
         containers?: GoogleContainer[];
