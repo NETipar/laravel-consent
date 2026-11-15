@@ -43,7 +43,7 @@ class ConsentServiceProvider extends ServiceProvider
 
         Blade::anonymousComponentPath(__DIR__.'/../resources/views/components', 'consent');
         Blade::if('consent', fn (string $category): bool => $this->app->make(ConsentManager::class)->allows($category));
-        Blade::directive('consentConfig', fn (): string => "<?php echo '<script type=\"application/json\" id=\"consent-config\">'.json_encode(app(\\NETipar\\Consent\\ConsentManager::class)->clientConfig(), JSON_HEX_TAG|JSON_HEX_AMP|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR).'</script>'; ?>");
+        Blade::directive('consentConfig', fn (string $expression): string => "<?php echo app(\\NETipar\\Consent\\ConsentManager::class)->configScripts({$expression}); ?>");
 
         if ($config->logEnabled) {
             $this->registerConsentLog($config);

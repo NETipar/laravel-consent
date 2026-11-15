@@ -6,6 +6,7 @@ namespace NETipar\Consent;
 
 use Closure;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Foundation\Vite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -31,6 +32,12 @@ class ConsentManager
         'save' => 'save',
         'cancel' => 'cancel',
     ];
+
+    private const int JSON_FLAGS = JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR;
+
+    private const string GOOGLE_BOOTSTRAP = __DIR__.'/../resources/js/google-advanced.js';
+
+    private static ?string $googleBootstrap = null;
 
     private readonly ConsentCookieReader $reader;
 
@@ -241,6 +248,46 @@ class ConsentManager
                 'updateEvent' => $this->config->googleUpdateEvent,
             ],
         ];
+    }
+
+    /**
+     * What `@consentConfig` prints: the client config as a non-executable JSON
+     * script and, in Google Consent Mode Advanced, the inline bootstrap that
+     * sends `consent default` and loads the Google tags synchronously, before
+     * any application push. The bootstrap reads the decision from the cookie
+     * in the browser, so the output stays the same for every visitor. The
+     * script mirrors the core's `readState()` (without its category purges) and its
+     * Advanced first load, and leaves a window marker the core adopts.
+     * `$nonce` defaults to the Vite CSP nonce (`Vite::useCspNonce()`).
+     */
+    public function configScripts(?string $nonce = null): string
+    {
+        $client = $this->clientConfig();
+        $html = '<script type="application/json" id="consent-config">'.json_encode($client, self::JSON_FLAGS).'</script>';
+
+        if ($client['google'] === null || $this->config->googleMode !== 'advanced') {
+            return $html;
+        }
+
+        $nonce ??= class_exists(Vite::class) ? app(Vite::class)->cspNonce() : null;
+        $bootstrap = [
+            'version' => $this->config->version,
+            'cookie' => [
+                'name' => $this->config->cookieName,
+                'versionName' => $this->config->versionCookieName,
+                'domain' => $this->config->domain,
+            ],
+            'categories' => array_map(
+                static fn (Category $category): array => ['key' => $category->key, 'required' => $category->required],
+                $this->config->categories,
+            ),
+            'google' => $client['google'],
+        ];
+
+        return $html
+            .'<script'.($nonce !== null && $nonce !== '' ? ' nonce="'.e($nonce).'"' : '').'>'
+            .'('.(self::$googleBootstrap ??= rtrim((string) file_get_contents(self::GOOGLE_BOOTSTRAP))).')('.json_encode($bootstrap, self::JSON_FLAGS).', window);'
+            .'</script>';
     }
 
     private function currentRequest(): Request

@@ -24,6 +24,7 @@ use NETipar\Consent\Models\ConsentLog;
  * @method static string|null policyUrl()
  * @method static array<string, string> texts()
  * @method static array<string, mixed> clientConfig()
+ * @method static string configScripts(?string $nonce = null)
  * @method static list<array{key: string, label: string, description: string, required: bool, cookies: list<array{name: string, provider: ?string, purpose: ?string, lifetime: ?string, domain: ?string}>}> cookieTable()
  * @method static Collection<int, ConsentLog> history(string $consentId)
  * @method static string|null consentId(?Request $request = null)

@@ -1,8 +1,28 @@
 import type { ConsentManager, GoogleContainer, GoogleSignal, GoogleTag } from './types';
 
+type Signals = Record<GoogleSignal, 'granted' | 'denied'>;
+
+/**
+ * What the first Advanced load sent on this page: the signals and granted
+ * categories of the last `consent default` / `update`, the configured gtag ids and the loaded
+ * container ids. Written by the inline bootstrap of `@consentConfig`
+ * (resources/js/google-advanced.js) or by the core, whichever runs first.
+ */
+interface GoogleBootMarker {
+    signals: Signals;
+    /** Missing in a marker written by an older inline script. */
+    granted?: readonly string[];
+    tags: string[];
+    containers: string[];
+}
+
+/** Window property of the boot marker; resources/js/google-advanced.js uses the same name. */
+export const GOOGLE_BOOT_MARKER = '__netiparConsentGoogle';
+
 type GtagWindow = Window & {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    [GOOGLE_BOOT_MARKER]?: GoogleBootMarker;
 };
 
 /** Upper bound for the idle deferral of the first load, so a busy page cannot delay tags indefinitely. */
@@ -17,13 +37,18 @@ const LOADER_ORIGIN = 'https://www.googletagmanager.com';
  * Tag Manager containers, in one of two modes (`google.mode`):
  *
  * - **Basic** (default): nothing is loaded while no tag's category and no
- *   container's categories are granted. On the first grant one shared
- *   `dataLayer` receives `consent default` with the four v2 signals and the
- *   `set` calls, then the loaders: gtag.js (with `js` + `config` per granted
- *   tag) and, per eligible container, the `gtm.start` push and `gtm.js`.
+ *   container's categories are granted. On the first grant (deferred to an
+ *   idle callback) one shared `dataLayer` receives `consent default` with the
+ *   four v2 signals and the `set` calls, then the loaders: gtag.js (with `js` +
+ *   `config` per granted tag) and, per eligible container, the `gtm.start`
+ *   push and `gtm.js`.
  * - **Advanced**: the same sequence runs on every page load whatever the
  *   decision — before one, `consent default` sends all four signals
- *   `denied` — and every tag and container loads; the signals gate them.
+ *   `denied` — plus an event-less `consent_granted` push when a container
+ *   exists; every tag and container loads, the signals gate them. The inline
+ *   bootstrap of `@consentConfig` normally sent it already: its boot marker is
+ *   adopted and only a differing decision is sent, as `consent update`.
+ *   Without the marker the core loads synchronously, with no idle deferral.
  *
  * Later changes send `consent update`, push the `updateEvent` (once a
  * container is loaded), `config` newly eligible tags and load containers that became eligible —
@@ -57,8 +82,8 @@ export function attachGoogle(
     const configured = new Set<string>();
     const loadedContainers = new Set<string>();
 
-    const signals = (): Record<GoogleSignal, 'granted' | 'denied'> => {
-        const result = {} as Record<GoogleSignal, 'granted' | 'denied'>;
+    const signals = (): Signals => {
+        const result = {} as Signals;
 
         for (const key of SIGNAL_KEYS) {
             result[key] = manager.has(google.signals[key]) ? 'granted' : 'denied';
@@ -93,6 +118,18 @@ export function attachGoogle(
         }
 
         return gwin.gtag;
+    };
+
+    /** Advanced only: records what was sent, so a later boot on this page adopts it instead of loading again. */
+    const publish = (sent: Signals): void => {
+        if (advanced) {
+            gwin[GOOGLE_BOOT_MARKER] = {
+                signals: sent,
+                granted: [...manager.state().granted],
+                tags: [...configured],
+                containers: [...loadedContainers],
+            };
+        }
     };
 
     const inject = (src: string): void => {
@@ -149,6 +186,20 @@ export function attachGoogle(
         }
     };
 
+    /** `consent update`, then (once a container is loaded) the reset and the update event. */
+    const sendUpdate = (sent: Signals): void => {
+        ensureStubs()('consent', 'update', sent);
+
+        // Only once a container is on the page, so a gtag-only page collects no events for a container that loads later.
+        // A further container loading in this same change still sees this event when it replays the dataLayer.
+        if (updateEvent !== null && loadedContainers.size > 0) {
+            // GTM merges a pushed array into the previous one index by index (Data Layer Variable, Version 2):
+            // without the reset a narrowed list would still read as the wider one (cf. Google's `ecommerce: null`).
+            dataLayer().push({ consent_granted: null });
+            dataLayer().push({ event: updateEvent, consent_granted: [...manager.state().granted] });
+        }
+    };
+
     const load = (): void => {
         scheduled = false;
 
@@ -164,8 +215,9 @@ export function attachGoogle(
         }
 
         const gtag = ensureStubs();
+        const sent = signals();
 
-        gtag('consent', 'default', signals());
+        gtag('consent', 'default', sent);
 
         if (google.adsDataRedaction) {
             gtag('set', 'ads_data_redaction', true);
@@ -175,10 +227,16 @@ export function attachGoogle(
             gtag('set', 'url_passthrough', true);
         }
 
+        // Advanced: the GTM Data Layer Variable reads the real state on a plain page load, not only after a change.
+        if (advanced && updateEvent !== null) {
+            dataLayer().push({ consent_granted: [...manager.state().granted] });
+        }
+
         defaulted = true;
 
         loadTags(tags);
         loadContainers();
+        publish(sent);
     };
 
     const schedule = (): void => {
@@ -201,31 +259,55 @@ export function attachGoogle(
         }
 
         if (!defaulted) {
-            if (eligibleTags().length > 0 || pendingContainers().length > 0) {
+            if (advanced) {
+                // The order guarantee: no idle deferral, the default goes out before the app can push.
+                load();
+            } else if (eligibleTags().length > 0 || pendingContainers().length > 0) {
                 schedule();
             }
 
             return;
         }
 
-        ensureStubs()('consent', 'update', signals());
+        const sent = signals();
 
-        // Only once a container is on the page, so a gtag-only page collects no events for a container that loads later.
-        // A further container loading in this same change still sees this event when it replays the dataLayer.
-        if (updateEvent !== null && loadedContainers.size > 0) {
-            // GTM merges a pushed array into the previous one index by index (Data Layer Variable, Version 2):
-            // without the reset a narrowed list would still read as the wider one (cf. Google's `ecommerce: null`).
-            dataLayer().push({ consent_granted: null });
-            dataLayer().push({ event: updateEvent, consent_granted: [...manager.state().granted] });
+        sendUpdate(sent);
+        loadTags(eligibleTags());
+        loadContainers();
+        publish(sent);
+    };
+
+    /**
+     * The inline bootstrap (or an earlier core on this page) already sent the default and the loaders:
+     * take them over, report the loaded categories (D23) and send an update only for a differing decision
+     * (a host-only shadow cookie the core purged, a decision made in another tab meanwhile).
+     */
+    const adopt = (marker: GoogleBootMarker): void => {
+        defaulted = true;
+        gtagLoaded = marker.tags.length > 0;
+        marker.tags.forEach((id) => configured.add(id));
+        marker.containers.forEach((id) => loadedContainers.add(id));
+
+        const sent = signals();
+        const granted = manager.state().granted.join(',');
+
+        if (SIGNAL_KEYS.some((key) => marker.signals[key] !== sent[key]) || (marker.granted !== undefined && marker.granted.join(',') !== granted)) {
+            sendUpdate(sent);
         }
 
         loadTags(eligibleTags());
         loadContainers();
+        publish(sent);
     };
 
     const unsubscribe = manager.onChange(apply);
+    const marker = gwin[GOOGLE_BOOT_MARKER];
 
-    apply();
+    if (marker !== undefined) {
+        adopt(marker);
+    } else {
+        apply();
+    }
 
     return () => {
         detached = true;

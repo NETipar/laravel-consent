@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeConfig, makeEnv, tick } from './__tests__/support';
+import { makeConfig, makeEnv, seedCookies, tick } from './__tests__/support';
 import type { TestEnv } from './__tests__/support';
 import { createConsent } from './consent';
 import type { ConsentConfig, ConsentManager } from './types';
@@ -91,23 +91,36 @@ describe('attachGoogle — Consent Mode v2 Advanced', () => {
         decide(make(makeGoogle(), { google: false }));
     };
 
-    it('loads the container before any decision: default all denied → set → gtm.start → script', () => {
-        make(makeGoogle({ adsDataRedaction: true, urlPassthrough: true }));
+    it('loads the container before any decision, synchronously: default all denied → set → consent_granted → gtm.start → script', () => {
         const insertions = recordInsertions();
+        make(makeGoogle({ adsDataRedaction: true, urlPassthrough: true }));
 
-        // Deferred like every first load; nothing is on the page yet.
-        expect(scripts()).toEqual([]);
-        vi.runAllTimers();
-
+        // No idle deferral in Advanced mode: everything is on the page when createConsent() returns.
         expect(layer()).toEqual([
             ['consent', 'default', ALL_DENIED],
             ['set', 'ads_data_redaction', true],
             ['set', 'url_passthrough', true],
+            { consent_granted: ['necessary'] },
             GTM_START,
         ]);
-        expect(insertions).toEqual([{ src: CONTAINER_SRC, layerLength: 4 }]);
+        expect(insertions).toEqual([{ src: CONTAINER_SRC, layerLength: 5 }]);
         expect(env.doc.querySelector('script[src*="gtm.js"]')?.hasAttribute('async')).toBe(true);
         expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('puts the default before an application push made right after the boot', () => {
+        make();
+        (env.win as unknown as { dataLayer: unknown[] }).dataLayer.push({ event: 'purchase' });
+        vi.runAllTimers();
+
+        expect(layer()[0]).toEqual(['consent', 'default', ALL_DENIED]);
+        expect(layer().slice(-1)).toEqual([{ event: 'purchase' }]);
+    });
+
+    it('pushes no initial consent_granted when the update event is off', () => {
+        make(makeGoogle({ updateEvent: null }));
+
+        expect(layer()).toEqual([['consent', 'default', ALL_DENIED], GTM_START]);
     });
 
     it('loads a container whose categories are not granted', () => {
@@ -175,7 +188,7 @@ describe('attachGoogle — Consent Mode v2 Advanced', () => {
         const consent = make();
         vi.runAllTimers();
 
-        expect(layer()[0]).toEqual(['consent', 'default', ANALYTICS_ONLY]);
+        expect(layer().slice(0, 2)).toEqual([['consent', 'default', ANALYTICS_ONLY], { consent_granted: ['necessary', 'analytics'] }]);
         expect(scripts()).toEqual([CONTAINER_SRC]);
 
         consent.rejectAll();
@@ -190,12 +203,21 @@ describe('attachGoogle — Consent Mode v2 Advanced', () => {
         const consent = make();
         vi.runAllTimers();
 
-        expect(layer()[0]).toEqual(['consent', 'default', ALL_DENIED]);
+        expect(layer().slice(0, 2)).toEqual([['consent', 'default', ALL_DENIED], { consent_granted: ['necessary'] }]);
         expect(scripts()).toEqual([CONTAINER_SRC]);
 
         consent.rejectAll();
         tick();
         expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('treats a decision stored for an older version as none: everything denied', () => {
+        seedCookies(env.doc, '__cookie_consent=necessary,analytics,marketing; __cookie_consent_v=2025-01');
+
+        make();
+
+        expect(layer()[0]).toEqual(['consent', 'default', ALL_DENIED]);
+        expect(scripts()).toEqual([CONTAINER_SRC]);
     });
 
     it('reloads only for the container\'s own categories', () => {
@@ -211,16 +233,6 @@ describe('attachGoogle — Consent Mode v2 Advanced', () => {
         consent.save([]);
         tick();
         expect(reload).toHaveBeenCalledTimes(1);
-    });
-
-    it('takes a decision made before the deferred load as the default, with no update event', () => {
-        const consent = make();
-
-        consent.acceptAll();
-        vi.runAllTimers();
-
-        expect(layer()).toEqual([['consent', 'default', ALL_GRANTED], GTM_START]);
-        expect(events('consent_update')).toEqual([]);
     });
 
     it('loads and configures every gtag tag before any decision, once', () => {
