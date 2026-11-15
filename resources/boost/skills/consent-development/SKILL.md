@@ -101,9 +101,13 @@ For Google tags configure `google.tags` (`['id' => 'G-…', 'category' => 'analy
 and remove any hand-written `gtag.js` snippet: the package loads it after
 consent (Consent Mode v2 Basic, the default `google.mode`). With
 `google.mode` `'advanced'` every tag and container loads on every page load
-after a `consent default` with the signals `denied` until a grant; then every
-non-Google tag in a container needs GTM's "Require additional consent", and
-the cookie policy must say Google loads before consent. A Google Tag Manager container goes to
+after a `consent default` with the signals `denied` until a grant, sent by an
+inline script `@consentConfig` prints: put `@consentConfig` at the top of
+`<head>` (Inertia: in the root view too), before any `dataLayer` push, and pass
+the CSP nonce (`@consentConfig($nonce)`, default `Vite::cspNonce()`). Then every
+non-Google tag in a container needs GTM's "Require additional consent", the
+cookie policy must say Google loads before consent, and `ads_data_redaction`
+is recommended. A Google Tag Manager container goes to
 `google.containers` (`['id' => 'GTM-…']`, optional `categories`; never into
 `tags`): in Basic it loads once any of its categories is granted, and once it is loaded every
 later change pushes `google.update_event` (`'consent_update'`, preceded by a
@@ -156,7 +160,7 @@ manager (the `ConsentManager` singleton caches its config).
 ### Directives and components
 
 - `@consent('x') … @else … @endconsent`, `@unlessconsent('x')`, `@elseconsent('x')` (argument required — **never a bare `@elseconsent`**; keep whitespace before `@else` / `@endconsent`).
-- `@consentConfig` — prints the JSON script the JS core reads.
+- `@consentConfig` / `@consentConfig($nonce)` — prints the JSON script the JS core reads; in Google Consent Mode Advanced also the inline bootstrap (`consent default` + loaders) with the nonce (default `Vite::cspNonce()`), so place it at the top of `<head>`.
 - `<x-consent::banner>` — attributes `title`, `description`, `:policy-url`, `policy-label`; slots: default, `settings`.
 - `<x-consent::cookie-table>` — props `:categories`, `:only` (bound list), `headings`, `:show-empty`; optional slot.
 

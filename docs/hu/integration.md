@@ -39,6 +39,15 @@ A `@consentConfig` egy `<script type="application/json" id="consent-config">`
 elemet ír ki a `Consent::clientConfig()` tartalmával. A típus nem futtatható,
 ezért CSP nonce sem kell hozzá.
 
+Google Consent Mode **Advanced** módban (`google.mode` `'advanced'`, lásd
+[lent](#google-consent-mode-v2)) egy kis inline scriptet is kiír, amely
+elküldi a `consent default` hívást, és szinkron betölti a Google-t. Ilyenkor
+a `@consentConfig` a **`<head>` elejére** kerüljön, minden `dataLayer`-be
+pusholó script elé, és kapja meg a CSP nonce-ot: `@consentConfig($nonce)`
+(vagy `@consentConfig(nonce: $nonce)`); argumentum nélkül a
+`Vite::cspNonce()` értékét használja, így a `Vite::useCspNonce()`-t hívó
+alkalmazásnak nincs további teendője.
+
 `resources/js/app.js` — az adaptert az Alpine indítása **előtt** regisztrálja.
 
 Ha a Livewire csomagolja az Alpine-t (Livewire 3 és újabb):
@@ -213,6 +222,14 @@ public function share(Request $request): array
     ];
 }
 ```
+
+Google Consent Mode **Advanced** módban a gyökérnézet
+(`resources/views/app.blade.php`) `<head>` elejére is tegye be a
+`@consentConfig` direktívát, használt CSP esetén a nonce-szal: az inline
+scriptje a bundle előtt elküldi a `consent default` hívást és betölti a
+Google-t, a plugin pedig átveszi ezt az állapotot (lásd
+[Google Consent Mode v2](#google-consent-mode-v2)). A plugin továbbra is a
+megosztott propból olvassa a konfigurációt.
 
 A plugint a **kliens** belépési pontjában telepítse:
 
@@ -522,22 +539,60 @@ Ez a **Basic** mód, az alapértelmezés: hozzájárulás előtt semmi nem tölt
 Az **Advanced mód** (`'mode' => 'advanced'`) a döntés előtt és attól
 függetlenül betölti a Google-t:
 
-1. Minden oldalbetöltéskor — akár döntött már a látogató, akár nem — a mag
-   elküldi a `consent default` hívást a négy jelzéssel az aktuális döntés
-   szerint (döntés előtt mind `denied`), a `set` hívásokat, majd beszúrja a
-   gtag.js-betöltőt, `js` és **minden** címkére `config` hívással (ugyanúgy
-   halasztva). A Google-címkék hozzájárulás nélküli állapotban indulnak, és
-   sütimentes pingeket küldenek, amíg egy jelzés engedélyezetté nem válik.
-2. A későbbi változások ugyanazok, mint Basic módban: `consent update`, új
+1. Minden oldalbetöltéskor — akár döntött már a látogató, akár nem — a
+   `@consentConfig` által kiírt inline script szinkron lefut a `<head>`-ben,
+   idle-halasztás nélkül. Elküldi a `consent default` hívást a négy jelzéssel
+   a sütiben tárolt döntés szerint (döntés nélkül, vagy régebbi `version`-höz
+   tartozó döntésnél mind `denied`), a `set` hívásokat, majd beszúrja a
+   gtag.js-betöltőt, `js` és **minden** címkére `config` hívással. A
+   Google-címkék hozzájárulás nélküli állapotban indulnak, és sütimentes
+   pingeket küldenek, amíg egy jelzés engedélyezetté nem válik.
+2. A döntést a böngésző olvassa ki, a szerver sosem rendereli bele, így az
+   oldal minden látogatónak ugyanaz, és a teljes oldalas cache is helyes marad.
+3. A JS mag átveszi, amit az inline script elküldött: nincs második
+   `consent default` és nincs második betöltés — `sync()`, `livewire:navigated`
+   vagy bfcache-visszaállítás után sem. Ha a saját sütiolvasása eltér (például
+   közben egy másik fülön döntöttek), `consent update` hívást küld.
+4. A későbbi változások ugyanazok, mint Basic módban: `consent update`, új
    betöltés nélkül.
-3. Egy címke kategóriája az engedélyezéssel válik betöltötté, így a
+5. Egy címke kategóriája az engedélyezéssel válik betöltötté, így a
    visszavonása törli a sütiket, és — `reload_on_revoke` esetén — újratölt;
    egy első látogatáskori „Összes elutasítása” nem tölt újra, hiszen semmi
    nem volt engedélyezve.
 
-Advanced módban a Google a hozzájárulás előtt is kap kéréseket: csak akkor
-válassza, ha a hozzájárulási szabályzata ezt megengedi, és írja bele a
-sütiszabályzatba.
+**Sorrend-garancia.** Az inline script ott fut le, ahol a `@consentConfig`
+áll, ezért a `consent default` csak akkor lesz a `dataLayer` első eleme, ha a
+`@consentConfig` minden más, `dataLayer`-be pusholó script előtt van — tegye
+a `<head>` elejére. Az oldal lejjebb lévő inline pusha (például egy
+köszönőoldal `purchase` eseménye) így mindig a default után kerül a sorba.
+Inline script nélkül (egy `@consentConfig` nélküli oldalon, vagy egy régebbi
+verzióval renderelt, cache-elt oldalon) a mag induláskor továbbra is szinkron
+tölt Advanced módban, de csak a bundle-ből, így a korábbi inline pushok a
+default elé kerülhetnek.
+
+**CSP.** Az inline scriptnek kell a nonce (`@consentConfig($nonce)`,
+alapértelmezésben `Vite::cspNonce()`); a beszúrt `gtag.js` és `gtm.js`
+scriptekre is átmásolja. Hash nem alkalmas, mert a script a konfigurációt is
+tartalmazza. A HTML-t tároló teljes oldalas cache a nonce-ot is eltárolja,
+ezért nonce-alapú CSP mellett a nonce és az oldal ugyanabból a
+cache-bejegyzésből jöjjön, különben a böngésző blokkolja az inline scriptet.
+A JS mag által beszúrt betöltők (Basic módban, vagy Advanced módban inline
+script nélkül) nem kapnak nonce-ot: engedélyezze a Google hostjait, vagy
+használjon `'strict-dynamic'`-ot.
+
+A `createConsent(config, { google: false })` csak a mag Google-bekötését
+kapcsolja ki; Advanced módban a `@consentConfig` inline scriptje ettől még
+betölti a Google-t.
+
+**Basic vagy Advanced?** A Basic az alapértelmezés és a biztonságos választás:
+hozzájárulás előtt semmilyen kérés nem jut el a Google-hez. Az Advanced
+módban a Google-címkék sütimentes, hozzájárulás nélküli pingeket küldenek,
+így a Google modellezni tudja a hozzá nem járuló látogatók konverzióit és
+látogatásait — a Google Ads és a GA4 modellezése ezt várja. Csak akkor
+válassza, ha a hozzájárulási szabályzata megengedi, hogy a Google a
+hozzájárulás előtt kérést kapjon, írja bele a sütiszabályzatba, és kapcsolja
+be az `ads_data_redaction` beállítást (`ad_storage` `denied` állapotában
+kitakarja a hirdetési kattintásazonosítókat).
 
 **Takarítás minden oldalbetöltéskor.** Amint a látogató döntött, a JS mag eltávolítja minden nem engedélyezett, nem kötelező kategória beállított sütijeit (`categories.*.cookies`, pontos név és `előtag*` minta, a hoston és minden szülő domainen) — az első oldalbetöltéskor és minden újraszinkronizáláskor (Livewire-navigáció, a fül újra láthatóvá válása, bfcache-visszaállítás), nem csak a visszavonás pillanatában. Így a döntés előtt betöltött címke vagy egy másik fül, amely tovább írta a `_ga*` sütiket, nem hagyhat maradványt. A még nem döntött látogatóhoz nem nyúl (döntés előtt semmi nem törlődik), a kötelező kategóriák sütijeit soha nem törli, és ez a takarítás sosem tölt újra oldalt, mert csak engedélyezett kategória számít betöltöttnek.
 
@@ -606,9 +661,14 @@ Basic módban:
    oldal újratölt.
 
 **Advanced módban** (`'mode' => 'advanced'`) a 2. lépés minden
-oldalbetöltéskor lefut, a döntéstől függetlenül: `consent default` (döntés
+oldalbetöltéskor lefut, a döntéstől függetlenül, a `@consentConfig` inline
+scriptjéből (az elhelyezést és a nonce-ot lásd:
+[Google Consent Mode v2](#google-consent-mode-v2)): `consent default` (döntés
 előtt mind a négy jelzés `denied`, visszatérő látogatónál a tárolt döntés), a
-`set` hívások, `gtm.start` és `gtm.js`. A 3. és 4. lépés változatlan; a
+`set` hívások, egy esemény nélküli `{consent_granted: ['necessary', …]}` push
+(hacsak az `update_event` nem `null`), majd `gtm.start` és `gtm.js`. Így egy
+`consent_granted` Data Layer Variable már sima oldalbetöltéskor, a `gtm.js`
+eseménynél is az aktuális listát adja. A 3. és 4. lépés változatlan; a
 konténer `categories` listája már nem kapuzza a betöltést, csak azt dönti el,
 mely visszavonás tölt újra (egy kategória az engedélyezéssel számít, így egy
 első látogatáskori „Összes elutasítása” nem tölt újra). Az újratöltés marad:
@@ -619,15 +679,18 @@ hozzájárulás-ellenőrzéssel követik a jelzéseket; a nem Google-címkékné
 Consent Settingsben állítsa be a **Require additional consent** opciót.
 Advanced módban ez kötelező, mert a konténer a döntés előtt fut: egy további
 hozzájárulás-ellenőrzés nélküli Meta Pixel- vagy Hotjar-címke minden
-látogatónál elsül. A döntés után azonnal futó címkéket a `consent_update`
-eseményre süsse el. A `consent_granted` csak változáskor kerül a
+látogatónál elsül. A csomag nem lát bele a konténerbe, ezért ez a konténer
+gazdájának (gyakran egy marketingügynökségnek) a felelőssége: az Advanced
+módra váltás előtt egyeztessen vele. A döntés után azonnal futó címkéket a `consent_update`
+eseményre süsse el. Basic módban a `consent_granted` csak változáskor kerül a
 `dataLayer`-be, így egy sima oldalbetöltéskor üres akkor is, ha a látogató
 korábban hozzájárult — a hozzájárulás-ellenőrzésekre építsen, ne csak erre a
 változóra. Advanced módban a Google a hozzájárulás előtt is kap kéréseket:
 ezt írja bele a sütiszabályzatba.
 
 **Inertia (Vue 3).** A `createConsentPlugin()` és a `<ConsentBanner>` mellett
-nincs teendő: a plugin managere az egész látogatás alatt él, így a konténer
+nincs teendő (Advanced módban még a `@consentConfig` a gyökérnézet `<head>`
+elejére): a plugin managere az egész látogatás alatt él, így a konténer
 Inertia-navigációk mellett is egyszer kerül be; SSR alatt semmi nem fut. Az
 Inertia-navigáció `history.pushState`-tel vált URL-t, amit a GTM nem számol
 oldalletöltésnek: vegyen fel egy **History Change** triggert, és arra

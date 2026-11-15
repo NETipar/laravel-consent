@@ -2,6 +2,19 @@
 
 Migration notes for breaking changes.
 
+## From v0.2.x to v0.3.0
+
+Nothing to do unless you switch Google Consent Mode to Advanced: without `google.mode` (or with `'basic'`) the package behaves as in v0.2.0, and a `google` block published before v0.3.0 keeps working. Clear the compiled views once after updating (`php artisan view:clear`, or your usual `view:cache` in the deploy), because `@consentConfig` now compiles differently.
+
+To switch to Advanced (`'mode' => 'advanced'` in `config/consent.php`):
+
+1. Update `@netipar/consent-core` (and `-alpine` / `-vue3`) to 0.3.0 together with the Composer package. An older JS core ignores the mode and the inline script, and would send a second `consent default` and load `gtag.js` a second time.
+2. Move `@consentConfig` to the **top of `<head>`**, before every script that pushes to `dataLayer`. In an Inertia app add it to the root view (`resources/views/app.blade.php`) as well.
+3. With a nonce-based CSP pass the nonce: `@consentConfig($nonce)`. An app that calls `Vite::useCspNonce()` needs no argument.
+4. Remove any hand-written gtag.js or GTM snippet (and the GTM `<noscript>` iframe) from the layout.
+5. In the GTM container give every non-Google tag (Meta Pixel, Hotjar, …) **Require additional consent** in its Consent Settings — the container now runs before the decision, and that gating is the container owner's job.
+6. Turn on `ads_data_redaction`, and say in your cookie policy that Google receives requests before consent.
+
 ## From netipar/cookie-consent 1.x
 
 `netipar/laravel-consent` is a new package, not a 2.0 of `netipar/cookie-consent`: the namespace, the config, the markup and the behaviour all change. The 1.x line stays untouched. Plan for roughly an hour.
