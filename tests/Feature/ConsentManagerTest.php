@@ -103,6 +103,7 @@ it('includes the google block when tags are configured', function (): void {
     freshConsent();
 
     expect(Consent::clientConfig()['google'])->toBe([
+        'mode' => 'basic',
         'tags' => [['id' => 'G-8B396W54EK', 'category' => 'analytics']],
         'containers' => [],
         'signals' => [
@@ -125,6 +126,7 @@ it('includes the google block when only containers are configured', function ():
     freshConsent();
 
     expect(Consent::clientConfig()['google'])->toBe([
+        'mode' => 'basic',
         'tags' => [],
         'containers' => [['id' => 'GTM-ABC123', 'categories' => ['analytics', 'marketing']]],
         'signals' => [
@@ -137,6 +139,16 @@ it('includes the google block when only containers are configured', function ():
         'urlPassthrough' => false,
         'updateEvent' => null,
     ]);
+});
+
+it('carries the advanced Consent Mode to the JS core', function (): void {
+    config([
+        'consent.google.containers' => [['id' => 'GTM-ABC123']],
+        'consent.google.mode' => 'advanced',
+    ]);
+    freshConsent();
+
+    expect(Consent::clientConfig()['google']['mode'])->toBe('advanced');
 });
 
 it('emits camelCase keys for both google lists in the JSON document', function (): void {

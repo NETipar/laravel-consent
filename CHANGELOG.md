@@ -4,6 +4,16 @@ All notable changes to `netipar/laravel-consent` will be documented in this file
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See [UPGRADE.md](UPGRADE.md) for migration notes.
 
+## v0.3.0 - 2026-11-15
+
+### Added
+
+- Google Consent Mode v2 **Advanced**: `google.mode` (`'basic'` | `'advanced'`, default `'basic'`). In Advanced mode every gtag.js tag and GTM container loads on every page load, before and regardless of the decision: `consent default` first (all four signals `denied` without a decision, the stored decision for a returning visitor), then the `set` calls and the loaders. Later changes are unchanged (`consent update`, then `{consent_granted: null}` and the `update_event` once a container is loaded). `reload_on_revoke` still applies: a category counts as loaded once it is granted, so revoking it reloads, while a first-visit "Reject all" does not. A container's `categories` only scope that reload in Advanced mode. `clientConfig()['google']` gains `mode`; `GoogleConsentMode` type exported from `@netipar/consent-core`.
+
+### Changed
+
+- A missing `google.mode` keeps Basic, in the published config and in a client config from an older server, so existing installs behave as before. An unknown value fails at boot.
+
 ## v0.2.0 - 2026-11-10
 
 ### Added

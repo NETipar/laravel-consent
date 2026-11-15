@@ -88,12 +88,13 @@ soha nem törlődnek).
 | `reload_on_revoke` | `true` | Boolean. A betöltött külső címkék nem távolíthatók el, ezért ha a visszavont kategóriához **töltődött be valami** (lefutott egy tiltott script, beállítottak egy Google címkét, betöltődött hozzá egy GTM-konténer), az oldal egyszer újratölt. Lásd a README „Complete withdrawal” szakaszát. |
 | `policy_url` | `null` | `null`, string vagy `[locale => url]` map. Az a string, amely egy létező route nevét adja (`'cookie-policy'`), `route('cookie-policy')`-vé alakul; minden más string változatlanul marad. A map az `app()->getLocale()`, majd az `app.fallback_locale` szerint választ, különben `null`. Kérésenként oldódik fel. |
 
-### Google Consent Mode v2 (Basic)
+### Google Consent Mode v2
 
 | Kulcs | Alapérték | Megjegyzés |
 |---|---|---|
+| `google.mode` | `'basic'` | `'basic'` vagy `'advanced'` (v0.3.0+). Basic: engedélyezés előtt semmi nem töltődik be a Google-től. Advanced: minden címke és konténer minden oldalbetöltéskor betöltődik, egy `consent default` után, amelyben döntés nélkül mind a négy jelzés `denied`; a jelzések kapuzzák a címkéket. Más érték hiba. Opcionális kulcs. |
 | `google.tags` | `[]` | `['id' => 'G-XXXX', 'category' => 'analytics']` elemek listája. Az `id` illeszkedik a `^(G\|AW\|GT\|DC\|UA)-[A-Z0-9\-]+$` mintára (a `GTM-` azonosító a `google.containers`-be való); a `category` létező és **nem** kötelező kategória kell legyen. Ha a `tags` és a `containers` is üres, a Google ki van kapcsolva, a `clientConfig()['google']` `null`. |
-| `google.containers` | `[]` | Google Tag Manager-konténerek listája: `['id' => 'GTM-XXXX']` vagy `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. Az `id` illeszkedik a `^GTM-[A-Z0-9]+$` mintára, és egyedi; az `id`-n és a `categories`-on kívül más kulcs nem megengedett (a tags-stílusú `category` hiba). A `categories` létező, **nem** kötelező kategóriák nem üres listája; a konténer akkor tölt be, ha bármelyik engedélyezett. `categories` nélkül azok a nem kötelező kategóriák az alapértelmezés, amelyekre a `google.signals` mutat (a kötelezőek kimaradnak; ha nem marad semmi, hiba). Opcionális kulcs. |
+| `google.containers` | `[]` | Google Tag Manager-konténerek listája: `['id' => 'GTM-XXXX']` vagy `['id' => 'GTM-XXXX', 'categories' => ['analytics', 'marketing']]`. Az `id` illeszkedik a `^GTM-[A-Z0-9]+$` mintára, és egyedi; az `id`-n és a `categories`-on kívül más kulcs nem megengedett (a tags-stílusú `category` hiba). A `categories` létező, **nem** kötelező kategóriák nem üres listája; Basic módban a konténer akkor tölt be, ha bármelyik engedélyezett, Advanced módban attól függetlenül betölt, és a lista csak azt dönti el, mely visszavonás tölt újra. `categories` nélkül azok a nem kötelező kategóriák az alapértelmezés, amelyekre a `google.signals` mutat (a kötelezőek kimaradnak; ha nem marad semmi, hiba). Opcionális kulcs. |
 | `google.signals` | `analytics_storage → analytics`, `ad_storage`, `ad_user_data`, `ad_personalization → marketing` | Pontosan ez a négy kulcs; minden érték létező kategória. |
 | `google.ads_data_redaction` | `false` | Boolean. A betöltő előtt `gtag('set', 'ads_data_redaction', true)` fut. |
 | `google.url_passthrough` | `false` | Boolean. A betöltő előtt `gtag('set', 'url_passthrough', true)` fut. |
@@ -126,9 +127,10 @@ definiál egy legfelső szintű blokkot — `cookie`, `categories`, `log`, `goog
 az **teljes egészében** felváltja a csomag alapértelmezését, ezért teljesnek kell
 lennie, a beágyazott `log.route` és `google.signals` blokkokkal együtt. A
 hiányos blokk induláskor bukik, az üzenet a hiányzó kulcsot nevezi meg.
-(A `log.user_agent_max_length`, a `google.containers` és a
-`google.update_event` opcionális, hiányukban az alapértelmezés érvényes, így a
-v0.2.0 előtt publikált `google` blokk továbbra is működik.) A publikált fájlt
+(A `log.user_agent_max_length`, a `google.containers`, a
+`google.update_event` és a `google.mode` opcionális, hiányukban az
+alapértelmezés érvényes, így a v0.2.0 vagy v0.3.0 előtt publikált `google`
+blokk továbbra is működik — Basic módban.) A publikált fájlt
 tekintse az egyetlen forrásnak, és helyben szerkessze.
 
 A hozzájárulási napló route-ja, middleware-je és rate limitje egyszer, induláskor
@@ -198,6 +200,7 @@ feloldva.
   "log": { "endpoint": "/consent/log", "idCookieName": "__cookie_consent_id" },
   "policyUrl": "/suti-kezeles",
   "google": {
+    "mode": "basic",
     "tags": [{ "id": "G-XXXXXXX", "category": "analytics" }],
     "containers": [{ "id": "GTM-XXXXXXX", "categories": ["analytics", "marketing"] }],
     "signals": {

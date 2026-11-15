@@ -496,6 +496,7 @@ A `config/consent.php`-ban írja le a címkéket és szükség esetén a jelzés
 
 ```php
 'google' => [
+    'mode' => 'basic', // vagy 'advanced' (v0.3.0+), lásd lent
     'tags' => [
         ['id' => 'G-XXXXXXX', 'category' => 'analytics'],
         ['id' => 'AW-XXXXXXXXX', 'category' => 'marketing'],
@@ -511,16 +512,38 @@ A `config/consent.php`-ban írja le a címkéket és szükség esetén a jelzés
 ],
 ```
 
-Ez a **Basic** mód: hozzájárulás előtt semmi nem töltődik be a Google-től.
+Ez a **Basic** mód, az alapértelmezés: hozzájárulás előtt semmi nem töltődik be a Google-től.
 
 1. Amíg egyetlen címke kategóriája sincs engedélyezve, nem megy kérés, és nem kerül script az oldalra.
 2. Amikor egy címke kategóriája először engedélyezetté válik — a döntéskor, vagy egy már érvényes döntéssel érkező oldalbetöltéskor —, a mag definiálja a `gtag`-ot, elküldi a `consent default` hívást a négy jelzéssel (kategóriájuk szerint `granted` vagy `denied`), opcionálisan a `set ads_data_redaction` és `url_passthrough` hívást, beszúrja a `gtag/js?id=<az első engedélyezett címke>` scriptet (`requestIdleCallback`-kel halasztva, `setTimeout` tartalékkal), lefuttatja a `js`, majd minden engedélyezett címkére a `config` hívást.
 3. Egy későbbi engedélyezés `consent update` és a most engedélyezetté vált címkékre `config` hívást küld.
 4. A visszavonás `consent update` hívást küld az elvesztett jelzésekkel `denied` értékkel. A betöltött címkék nem távolíthatók el, ezért a kategória sütii törlődnek, és — `reload_on_revoke` esetén — az oldal egyszer újratölt.
 
-**Takarítás minden oldalbetöltéskor.** Amint a látogató döntött, a JS mag eltávolítja minden nem engedélyezett, nem kötelező kategória beállított sütijeit (`categories.*.cookies`, pontos név és `előtag*` minta, a hoston és minden szülő domainen) — az első oldalbetöltéskor és minden újraszinkronizáláskor (Livewire-navigáció, a fül újra láthatóvá válása, bfcache-visszaállítás), nem csak a visszavonás pillanatában. Így a döntés előtt betöltött címke vagy egy másik fül, amely tovább írta a `_ga*` sütiket, nem hagyhat maradványt. A még nem döntött látogatóhoz nem nyúl (döntés előtt semmi nem törlődik), a kötelező kategóriák sütijeit soha nem törli, és ez a takarítás sosem tölt újra oldalt, mert egy nem engedélyezett kategóriához nem töltődött be semmi.
+Az **Advanced mód** (`'mode' => 'advanced'`) a döntés előtt és attól
+függetlenül betölti a Google-t:
 
-Ne tegyen a layoutba saját `gtag.js` snippetet; az a hozzájárulás előtt betöltődne.
+1. Minden oldalbetöltéskor — akár döntött már a látogató, akár nem — a mag
+   elküldi a `consent default` hívást a négy jelzéssel az aktuális döntés
+   szerint (döntés előtt mind `denied`), a `set` hívásokat, majd beszúrja a
+   gtag.js-betöltőt, `js` és **minden** címkére `config` hívással (ugyanúgy
+   halasztva). A Google-címkék hozzájárulás nélküli állapotban indulnak, és
+   sütimentes pingeket küldenek, amíg egy jelzés engedélyezetté nem válik.
+2. A későbbi változások ugyanazok, mint Basic módban: `consent update`, új
+   betöltés nélkül.
+3. Egy címke kategóriája az engedélyezéssel válik betöltötté, így a
+   visszavonása törli a sütiket, és — `reload_on_revoke` esetén — újratölt;
+   egy első látogatáskori „Összes elutasítása” nem tölt újra, hiszen semmi
+   nem volt engedélyezve.
+
+Advanced módban a Google a hozzájárulás előtt is kap kéréseket: csak akkor
+válassza, ha a hozzájárulási szabályzata ezt megengedi, és írja bele a
+sütiszabályzatba.
+
+**Takarítás minden oldalbetöltéskor.** Amint a látogató döntött, a JS mag eltávolítja minden nem engedélyezett, nem kötelező kategória beállított sütijeit (`categories.*.cookies`, pontos név és `előtag*` minta, a hoston és minden szülő domainen) — az első oldalbetöltéskor és minden újraszinkronizáláskor (Livewire-navigáció, a fül újra láthatóvá válása, bfcache-visszaállítás), nem csak a visszavonás pillanatában. Így a döntés előtt betöltött címke vagy egy másik fül, amely tovább írta a `_ga*` sütiket, nem hagyhat maradványt. A még nem döntött látogatóhoz nem nyúl (döntés előtt semmi nem törlődik), a kötelező kategóriák sütijeit soha nem törli, és ez a takarítás sosem tölt újra oldalt, mert csak engedélyezett kategória számít betöltöttnek.
+
+Ne tegyen a layoutba saját `gtag.js` snippetet; az a hozzájárulás-kezelésen
+kívül töltődne be (a hozzájárulás előtt, Advanced módban pedig a
+`consent default` előtt).
 A CSP-ben engedélyezze azokat a hosztokat, amelyeket a Google a termékeihez
 dokumentál (lásd a [Google áttekintését](https://business.safety.google/adscookies/)).
 
@@ -535,10 +558,12 @@ if (Alpine.store('consent').has('marketing') && typeof window.gtag === 'function
 ## Google Tag Manager
 
 A GTM-konténert ugyanazon a Consent Mode-csővezetéken töltse be, ne a
-layoutba másolt GTM-snippettel (az a hozzájárulás előtt betöltődne):
+layoutba másolt GTM-snippettel (az a hozzájárulás előtt, Advanced módban a
+`consent default` előtt töltődne be):
 
 ```php
 'google' => [
+    'mode' => 'basic', // vagy 'advanced', lásd lent
     'tags' => [],
     // GTM_ID nélküli helyi és CI-környezetben semmi nem töltődik be.
     'containers' => env('GTM_ID') ? [['id' => env('GTM_ID')]] : [],
@@ -552,6 +577,8 @@ layoutba másolt GTM-snippettel (az a hozzájárulás előtt betöltődne):
 `categories` nélkül a konténer azokra a nem kötelező kategóriákra jogosult,
 amelyekre a jelzések mutatnak (itt `analytics` és `marketing`); szűkítéshez
 sorolja fel őket: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
+
+Basic módban:
 
 1. Döntés előtt semmi nem töltődik be, és akkor sem, ha csak kötelező kategória
    engedélyezett.
@@ -578,9 +605,26 @@ sorolja fel őket: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
    esemény megy ki, a sütik törlődnek, és — `reload_on_revoke` esetén — az
    oldal újratölt.
 
+**Advanced módban** (`'mode' => 'advanced'`) a 2. lépés minden
+oldalbetöltéskor lefut, a döntéstől függetlenül: `consent default` (döntés
+előtt mind a négy jelzés `denied`, visszatérő látogatónál a tárolt döntés), a
+`set` hívások, `gtm.start` és `gtm.js`. A 3. és 4. lépés változatlan; a
+konténer `categories` listája már nem kapuzza a betöltést, csak azt dönti el,
+mely visszavonás tölt újra (egy kategória az engedélyezéssel számít, így egy
+első látogatáskori „Összes elutasítása” nem tölt újra). Az újratöltés marad:
+a konténer addigra elsüthetett olyan címkéket, amelyek nem távolíthatók el.
+
 A konténeren belül a Consent Mode kapuz: a Google-címkék beépített
 hozzájárulás-ellenőrzéssel követik a jelzéseket; a nem Google-címkéknél a
 Consent Settingsben állítsa be a **Require additional consent** opciót.
+Advanced módban ez kötelező, mert a konténer a döntés előtt fut: egy további
+hozzájárulás-ellenőrzés nélküli Meta Pixel- vagy Hotjar-címke minden
+látogatónál elsül. A döntés után azonnal futó címkéket a `consent_update`
+eseményre süsse el. A `consent_granted` csak változáskor kerül a
+`dataLayer`-be, így egy sima oldalbetöltéskor üres akkor is, ha a látogató
+korábban hozzájárult — a hozzájárulás-ellenőrzésekre építsen, ne csak erre a
+változóra. Advanced módban a Google a hozzájárulás előtt is kap kéréseket:
+ezt írja bele a sütiszabályzatba.
 
 **Inertia (Vue 3).** A `createConsentPlugin()` és a `<ConsentBanner>` mellett
 nincs teendő: a plugin managere az egész látogatás alatt él, így a konténer
@@ -596,7 +640,8 @@ süsse el az oldalmegtekintés-címkét.
 oldalletöltéseket.
 
 Hatókörön kívül: a GTM `<noscript><iframe>` tartalékát nem lehet a
-hozzájárulással kapuzni, ezért a csomag nem adja ki — a layoutba se tegye be.
+hozzájárulással kapuzni (és `consent default`-ot sem kaphat), ezért a csomag
+nem adja ki — a layoutba se tegye be.
 
 ## Süti-táblázat
 

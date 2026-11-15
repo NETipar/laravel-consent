@@ -492,6 +492,7 @@ Describe your tags and, if needed, the signals in `config/consent.php`:
 
 ```php
 'google' => [
+    'mode' => 'basic', // or 'advanced' (v0.3.0+), see below
     'tags' => [
         ['id' => 'G-XXXXXXX', 'category' => 'analytics'],
         ['id' => 'AW-XXXXXXXXX', 'category' => 'marketing'],
@@ -507,7 +508,7 @@ Describe your tags and, if needed, the signals in `config/consent.php`:
 ],
 ```
 
-This is **Basic** mode: nothing from Google loads before consent.
+This is **Basic** mode, the default: nothing from Google loads before consent.
 
 1. While no tag's category is granted, no request is made and no script is added.
 2. When a tag's category is first granted — on the decision, or on a page
@@ -523,10 +524,29 @@ This is **Basic** mode: nothing from Google loads before consent.
    cannot be unloaded, so the cookies of the category are purged and — with
    `reload_on_revoke` — the page reloads once.
 
-**Housekeeping on every page load.** Once a visitor has decided, the JS core removes the configured cookies (`categories.*.cookies`, exact names and `prefix*` patterns, on the host and every parent domain) of every optional category that is not granted — on the initial page load and on every re-sync (Livewire navigation, tab becoming visible, bfcache restore), not only at the moment of a revocation. So a tag that loaded before the decision, or a second tab that kept writing `_ga*`, cannot leave residue behind. Visitors who have not decided yet are never touched (nothing is purged before a decision), required categories are never purged, and this cleanup never triggers a page reload, because nothing was loaded for a category that is not granted.
+**Advanced mode** (`'mode' => 'advanced'`) loads Google before and regardless
+of the decision:
 
-Do not add your own `gtag.js` snippet to the layout; it would load before
-consent. Allow the hosts Google documents for your products in your CSP
+1. On every page load — whether or not the visitor has decided — the core
+   sends `consent default` with the four signals derived from the current
+   decision (all `denied` before one), the `set` calls, then injects the
+   gtag.js loader with `js` and `config` for **every** tag (deferred the same
+   way). Google tags start in their consent-denied state and send cookieless
+   pings until a signal is granted.
+2. Later changes are the same as in Basic: `consent update`, then nothing new
+   to load.
+3. A tag's category counts as loaded once it is granted, so revoking it
+   purges the cookies and — with `reload_on_revoke` — reloads; a first-visit
+   "Reject all" does not reload, nothing was granted.
+
+Advanced mode means Google receives requests before consent: choose it only
+when your consent policy allows that, and say so in your cookie policy.
+
+**Housekeeping on every page load.** Once a visitor has decided, the JS core removes the configured cookies (`categories.*.cookies`, exact names and `prefix*` patterns, on the host and every parent domain) of every optional category that is not granted — on the initial page load and on every re-sync (Livewire navigation, tab becoming visible, bfcache restore), not only at the moment of a revocation. So a tag that loaded before the decision, or a second tab that kept writing `_ga*`, cannot leave residue behind. Visitors who have not decided yet are never touched (nothing is purged before a decision), required categories are never purged, and this cleanup never triggers a page reload, because only granted categories count as loaded.
+
+Do not add your own `gtag.js` snippet to the layout; it would load outside
+the consent wiring (before consent, or before the `consent default` in
+Advanced mode). Allow the hosts Google documents for your products in your CSP
 (see [Google's overview](https://business.safety.google/adscookies/)).
 
 To guard a conversion call, use the store (Alpine) or `has()`:
@@ -540,10 +560,12 @@ if (Alpine.store('consent').has('marketing') && typeof window.gtag === 'function
 ## Google Tag Manager
 
 Load a GTM container through the same Consent Mode pipeline instead of pasting
-the GTM snippet into the layout (the snippet would load before consent):
+the GTM snippet into the layout (the snippet would load before consent, or
+before the `consent default` in Advanced mode):
 
 ```php
 'google' => [
+    'mode' => 'basic', // or 'advanced', see below
     'tags' => [],
     // Local and CI environments without GTM_ID load nothing.
     'containers' => env('GTM_ID') ? [['id' => env('GTM_ID')]] : [],
@@ -557,6 +579,8 @@ the GTM snippet into the layout (the snippet would load before consent):
 Without `categories` the container is eligible for the optional categories the
 signals map to (here `analytics` and `marketing`); list them explicitly to
 narrow it: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
+
+In Basic mode:
 
 1. Nothing loads before the decision, nor when only required categories are
    granted.
@@ -580,9 +604,25 @@ narrow it: `['id' => env('GTM_ID'), 'categories' => ['marketing']]`.
 4. Revoking a category a loaded container covers sends `consent update` and the
    event, purges the cookies and — with `reload_on_revoke` — reloads.
 
+In **Advanced mode** (`'mode' => 'advanced'`) step 2 runs on every page load,
+whatever the decision: `consent default` (all four signals `denied` before a
+decision, the stored decision for a returning visitor), the `set` calls,
+`gtm.start` and `gtm.js`. Steps 3 and 4 are unchanged; the container's
+`categories` no longer gate the load, they only decide which revokes reload
+the page (a category counts once it is granted, so a first-visit
+"Reject all" does not reload). Keep the reload: the container may already
+have fired tags that cannot be unloaded.
+
 Inside the container, rely on Consent Mode: Google tags honour the signals
 through their built-in consent checks; give non-Google tags
-**Require additional consent** in their Consent Settings.
+**Require additional consent** in their Consent Settings. In Advanced mode
+this is mandatory, because the container runs before the decision: a Meta
+Pixel or Hotjar tag without the additional consent check fires for every
+visitor. Fire the tags that must run right after a decision on the
+`consent_update` event. `consent_granted` is pushed only on a change, so on a
+plain page load it is unset even for a visitor who consented earlier — gate
+on the consent checks, not on that variable alone. Advanced mode also means
+Google receives requests before consent: say so in your cookie policy.
 
 **Inertia (Vue 3).** Nothing extra beyond `createConsentPlugin()` and your
 `<ConsentBanner>`: the plugin's manager lives for the whole visit, so the
@@ -596,8 +636,9 @@ page-view tag on it.
 decision but never inject the container twice. With `wire:navigate` use the
 same **History Change** trigger for page views.
 
-Out of scope: the GTM `<noscript><iframe>` fallback cannot be gated by consent,
-so the package does not render it — leave it out of the layout.
+Out of scope: the GTM `<noscript><iframe>` fallback cannot be gated by consent
+(nor receive a `consent default`), so the package does not render it — leave
+it out of the layout.
 
 ## Cookie table
 

@@ -13,15 +13,20 @@ const SIGNAL_KEYS: readonly GoogleSignal[] = ['analytics_storage', 'ad_storage',
 const LOADER_ORIGIN = 'https://www.googletagmanager.com';
 
 /**
- * Google Consent Mode v2 **Basic** wiring (PLAN §3.5, D2) for gtag.js tags and
- * Google Tag Manager containers. Nothing is loaded while no tag's category and
- * no container's categories are granted. On the first grant one shared
- * `dataLayer` receives `consent default` with the four v2 signals and the
- * `set` calls, then the loaders: gtag.js (with `js` + `config` per granted tag)
- * and, per eligible container, the `gtm.start` push and `gtm.js`.
+ * Google Consent Mode v2 wiring (PLAN §3.5, D2) for gtag.js tags and Google
+ * Tag Manager containers, in one of two modes (`google.mode`):
+ *
+ * - **Basic** (default): nothing is loaded while no tag's category and no
+ *   container's categories are granted. On the first grant one shared
+ *   `dataLayer` receives `consent default` with the four v2 signals and the
+ *   `set` calls, then the loaders: gtag.js (with `js` + `config` per granted
+ *   tag) and, per eligible container, the `gtm.start` push and `gtm.js`.
+ * - **Advanced**: the same sequence runs on every page load whatever the
+ *   decision — before one, `consent default` sends all four signals
+ *   `denied` — and every tag and container loads; the signals gate them.
  *
  * Later changes send `consent update`, push the `updateEvent` (once a
- * container is loaded), `config` newly granted tags and load containers that became eligible —
+ * container is loaded), `config` newly eligible tags and load containers that became eligible —
  * each loader at most once. Every granted category something was loaded for is
  * reported via `manager.markLoaded()`, so revoking it triggers the D23 reload.
  * Without a window (SSR) it does nothing. Returns a detach function.
@@ -39,6 +44,8 @@ export function attachGoogle(
     const gwin = win as GtagWindow;
     const doc = win.document;
     const containers: readonly GoogleContainer[] = google.containers ?? [];
+    // Missing = a server older than v0.3.0, which only knew Basic.
+    const advanced = google.mode === 'advanced';
     // The event exists for GTM triggers; a gtag-only setup keeps its v0.1 dataLayer unchanged.
     const updateEvent = containers.length > 0 ? (google.updateEvent === undefined ? 'consent_update' : google.updateEvent) : null;
 
@@ -60,10 +67,12 @@ export function attachGoogle(
         return result;
     };
 
-    const grantedTags = (): GoogleTag[] => google.tags.filter((tag) => manager.has(tag.category));
+    /** Advanced: every tag, the signals gate it. Basic: only tags whose category is granted. */
+    const eligibleTags = (): GoogleTag[] => (advanced ? [...google.tags] : google.tags.filter((tag) => manager.has(tag.category)));
 
+    /** Advanced: every container not loaded yet. Basic: those with any of their categories granted. */
     const pendingContainers = (): GoogleContainer[] => containers.filter(
-        (container) => !loadedContainers.has(container.id) && container.categories.some((key) => manager.has(key)),
+        (container) => !loadedContainers.has(container.id) && (advanced || container.categories.some((key) => manager.has(key))),
     );
 
     const dataLayer = (): unknown[] => {
@@ -107,13 +116,15 @@ export function attachGoogle(
         }
 
         for (const tag of tags) {
-            if (configured.has(tag.id)) {
-                continue;
+            if (!configured.has(tag.id)) {
+                gtag('config', tag.id);
+                configured.add(tag.id);
             }
 
-            gtag('config', tag.id);
-            configured.add(tag.id);
-            manager.markLoaded(tag.category);
+            // Advanced configures a tag before its category is granted: it counts as loaded once granted (D23).
+            if (manager.has(tag.category)) {
+                manager.markLoaded(tag.category);
+            }
         }
     };
 
@@ -146,7 +157,7 @@ export function attachGoogle(
         }
 
         // Re-evaluated at run time: consent may have been revoked while the load was deferred.
-        const tags = grantedTags();
+        const tags = eligibleTags();
 
         if (tags.length === 0 && pendingContainers().length === 0) {
             return;
@@ -190,7 +201,7 @@ export function attachGoogle(
         }
 
         if (!defaulted) {
-            if (grantedTags().length > 0 || pendingContainers().length > 0) {
+            if (eligibleTags().length > 0 || pendingContainers().length > 0) {
                 schedule();
             }
 
@@ -208,7 +219,7 @@ export function attachGoogle(
             dataLayer().push({ event: updateEvent, consent_granted: [...manager.state().granted] });
         }
 
-        loadTags(grantedTags());
+        loadTags(eligibleTags());
         loadContainers();
     };
 

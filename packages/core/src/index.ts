@@ -17,6 +17,7 @@ export type {
     CookieTableCategory,
     CookieTableEntry,
     CreateConsentOptions,
+    GoogleConsentMode,
     GoogleContainer,
     GoogleSignal,
     GoogleTag,

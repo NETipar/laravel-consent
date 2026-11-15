@@ -232,6 +232,7 @@ class ConsentManager
             ] : null,
             'policyUrl' => $this->policyUrl(),
             'google' => $this->config->googleTags === [] && $this->config->googleContainers === [] ? null : [
+                'mode' => $this->config->googleMode,
                 'tags' => $this->config->googleTags,
                 'containers' => $this->config->googleContainers,
                 'signals' => $this->config->googleSignals,

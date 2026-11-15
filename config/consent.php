@@ -38,8 +38,9 @@ return [
     'reload_on_revoke' => true,             // loaded third-party tags cannot be unloaded → full reload after a revoke that affected a loaded category
     'policy_url' => null,                   // string URL | [locale => URL] | route name (resolved per request)
     'google' => [
+        'mode' => 'basic',                  // Consent Mode v2: 'basic' = Google loads only after a grant; 'advanced' = on every page load, signals denied until a grant
         'tags' => [],                       // [['id' => 'G-XXXX', 'category' => 'analytics'], ['id' => 'AW-XXXX', 'category' => 'marketing']]
-        'containers' => [],                 // GTM: env('GTM_ID') ? [['id' => env('GTM_ID')]] : [] — optional 'categories' (default: the optional ones in `signals`)
+        'containers' => [],                 // GTM: env('GTM_ID') ? [['id' => env('GTM_ID')]] : [] — optional 'categories' (default: the optional ones in `signals`; in advanced mode they only scope the reload)
         'signals' => [                      // Consent Mode v2 signal → category
             'analytics_storage' => 'analytics',
             'ad_storage' => 'marketing',
