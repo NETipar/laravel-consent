@@ -60,8 +60,8 @@ npm install @netipar/consent-core @netipar/consent-alpine
 
 ```blade
 <head>
-    …
     @consentConfig
+    …
 </head>
 <body>
     …
@@ -102,6 +102,8 @@ Share the client config (it is resolved per request, so the locale is right):
 // HandleInertiaRequests::share()
 'consent' => fn () => \NETipar\Consent\Facades\Consent::clientConfig(),
 ```
+
+With Google Consent Mode Advanced also put `@consentConfig` at the top of `<head>` in the root view (`resources/views/app.blade.php`); see [Google Consent Mode v2](#google-consent-mode-v2).
 
 Install the plugin in the app setup shared by the client and server entries. It is SSR-safe: on the server (no `document`) the plugin provides an inert manager — undecided, prompt open, no-op actions — so `<ConsentBanner>` renders without throwing; the consent UI is effectively client-side (the browser creates the real manager and hides the prompt on mount for visitors who already decided):
 

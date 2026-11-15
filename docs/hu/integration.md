@@ -26,8 +26,8 @@ Layout:
 
 ```blade
 <head>
-    …
     @consentConfig
+    …
 </head>
 <body>
     …
